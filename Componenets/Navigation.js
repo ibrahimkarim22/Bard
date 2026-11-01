@@ -17,11 +17,9 @@ import MITFullPlayScreen from "../screens/MITFullPlayScreen";
 import CourseScreen from "../screens/CourseScreen";
 import AboutScreen from "../screens/AboutScreen";
 import ContactScreen from "../screens/Contact";
-import HowTo from "../screens/HowTo";
 import Lesson from "../screens/LessonScreen";
 import Synopsis from "../screens/JustSynopsis";
 import SynopsisList from "../screens/SynopsisList";
-import Performances from "../screens/Performances";
 import { Pressable, StyleSheet, View, Text, Platform } from "react-native";
 import Constants from "expo-constants";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
@@ -37,7 +35,6 @@ import {
   faUserPlus,
   faWalkieTalkie,
 } from "@fortawesome/free-solid-svg-icons";
-import { faStar } from "@fortawesome/free-solid-svg-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
@@ -72,21 +69,9 @@ const drawerItems = [
     icon: faFeather,
   },
   {
-    name: "Performances",
-    label: "Performances",
-    description: "Stage and screen",
-    icon: faStar,
-  },
-  {
     name: "MyHighlights",
     label: "My Highlights",
     description: "Your saved passages",
-    icon: faLightbulb,
-  },
-  {
-    name: "HowTo",
-    label: "Guide",
-    description: "How BARD works",
     icon: faLightbulb,
   },
   {
@@ -173,7 +158,7 @@ const CustomDrawerContent = (props) => {
         </View>
         <Text style={styles.drawerBrandTitle}>Shakespeare Library</Text>
         <Text style={styles.drawerBrandSubtitle}>
-          Local plays, course progress, and performance notes.
+          Local plays, course progress, and saved passages.
         </Text>
         <View style={styles.drawerBrandStats}>
           <View style={styles.drawerBrandStat}>
@@ -314,40 +299,9 @@ const Main = () => {
           }}
         />
         <Drawer.Screen
-          name="Performances"
-          component={Performances}
-          options={{
-            drawerLabelStyle: { color: "white" },
-            drawerIcon: ({ focused }) => (
-              <FontAwesomeIcon
-                icon={faStar}
-                style={styles.drawerIcon}
-                size={28}
-                color={focused ? "peru" : "gray"}
-              />
-            ),
-          }}
-        />
-        <Drawer.Screen
           name="MyHighlights"
           component={MyHighlightsScreen}
           options={{ title: "My Highlights", drawerLabelStyle: { color: "white" } }}
-        />
-        <Drawer.Screen
-          name="HowTo"
-          component={HowTo}
-          options={{
-            title: "How To",
-            drawerLabelStyle: { color: "white" },
-            drawerIcon: ({ focused }) => (
-              <FontAwesomeIcon
-                icon={faLightbulb}
-                style={styles.drawerIcon}
-                size={28}
-                color={focused ? "peru" : "gray"}
-              />
-            ),
-          }}
         />
         <Drawer.Screen
           name="About"

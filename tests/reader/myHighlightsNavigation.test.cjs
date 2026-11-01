@@ -1,14 +1,18 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const babel = require('@babel/core');
 const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [...(tree.type === type ? [tree] : []), ...(tree.props?.children || []).flat(Infinity).flatMap(child => nodes(child, type))];
-function navigator() {
-  const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {}, useState: initial => [initial, () => {}] };
+function navigator({ signedIn = false } = {}) {
+  const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {}, useState: initial => [initial === null && signedIn ? { uid: 'test-account' } : initial, () => {}] };
   const native = { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Pressable: 'Pressable', Text: 'Text', View: 'View' };
   const calls = [];
+  const imports = [];
   const load = name => {
+    imports.push(name);
+    if (name.startsWith('.')) assert.ok(fs.existsSync(path.resolve(__dirname, '../../Componenets', name + '.js')), `navigation import resolves: ${name}`);
     if (name === 'react') return React;
     if (name === 'react-native') return native;
     if (name === '@react-navigation/stack') return { createStackNavigator: () => ({ Navigator: 'Stack', Screen: 'StackScreen' }) };
@@ -30,7 +34,7 @@ function navigator() {
   const routeNames = nodes(main, 'DrawerScreen').map(node => node.props.name);
   const content = drawer.props.drawerContent({ state: { routes: routeNames.map(name => ({ name })), routeNames, index: 0 }, navigation: { navigate: (...args) => calls.push(args) } });
   const renderFunctions = tree => typeof tree?.type === 'function' ? renderFunctions(tree.type(tree.props)) : !tree || typeof tree !== 'object' ? tree : { ...tree, props: { ...tree.props, children: (tree.props.children || []).flat(Infinity).map(renderFunctions) } };
-  return { stack, main, content: renderFunctions(content), calls };
+  return { stack, main, content: renderFunctions(content), calls, imports };
 }
 test('normal drawer opens My Highlights and detail uses the stack alongside the unchanged free-reading route', () => {
   const h = navigator();
@@ -44,4 +48,49 @@ test('normal drawer opens My Highlights and detail uses the stack alongside the 
   assert.ok(item, 'custom drawer includes the registered entry');
   item.props.onPress(); assert.deepEqual(h.calls, [['MyHighlights']]);
   assert.ok(!nodes(h.content, 'Text').some(text => /sync.*test|harness/i.test(text.props.children.join(''))));
+});
+
+test('normal drawer retains every non-video destination and each item navigates to its registered route', () => {
+  const retained = ['Home', 'Course', 'SynopsisList', 'FreeFolger', 'MyHighlights', 'About', 'Contact'];
+  for (const signedIn of [false, true]) {
+    const h = navigator({ signedIn });
+    const expected = [...retained, ...(signedIn ? [] : ['SignUp', 'Login'])];
+    assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), expected);
+    const buttons = nodes(h.content, 'Pressable');
+    assert.equal(buttons.length, expected.length);
+    buttons.forEach(button => button.props.onPress());
+    assert.deepEqual(h.calls, expected.map(name => [name]));
+    const copy = nodes(h.content, 'Text').map(node => node.props.children.join(' ')).join('\n');
+    assert.doesNotMatch(copy, /Performances|How To|\bGuide\b|Stage and screen|performance notes/i);
+    assert.ok(!h.imports.some(name => /screens\/(?:Performances|HowTo)$/.test(name)));
+  }
+});
+
+test('retained lesson, quiz, synopsis, reader, account, and highlight stack routes still resolve', () => {
+  const h = navigator();
+  const routes = nodes(h.stack, 'StackScreen').map(node => [node.props.name, node.props.component]);
+  assert.deepEqual(routes, [
+    ['Main', nodes(h.stack, 'StackScreen').find(node => node.props.name === 'Main').props.component],
+    ['Lesson', '../screens/LessonScreen'], ['Quiz', '../screens/QuizScreen'],
+    ['Folger', '../screens/FolgerAPITest'], ['MIT', '../screens/MITFullPlayScreen'],
+    ['Courses', '../screens/CourseScreen'], ['Root', '../screens/RootScreen'],
+    ['Login', '../screens/AuthLoginScreen'], ['SignUp', '../screens/SignUpScreen'],
+    ['ReadFolger', '../screens/Read'], ['PlayHighlights', '../screens/PlayHighlightsScreen'],
+    ['Synopsis', '../screens/JustSynopsis'],
+  ]);
+});
+
+test('unused video implementations, data, and YouTube package are removed while the reader WebView remains', () => {
+  const root = path.resolve(__dirname, '../..');
+  for (const file of ['screens/Performances.js', 'screens/HowTo.js', 'shared/PerformancesRoot.js', 'shared/HowToRoot.js']) {
+    assert.equal(fs.existsSync(path.join(root, file)), false, `removed video feature: ${file}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+  assert.equal(manifest.dependencies['react-native-youtube-iframe'], undefined);
+  assert.equal(lock.packages[''].dependencies['react-native-youtube-iframe'], undefined);
+  assert.equal(lock.packages['node_modules/react-native-youtube-iframe'], undefined);
+  assert.equal(manifest.dependencies['react-native-webview'], '13.13.5');
+  assert.equal(lock.packages[''].dependencies['react-native-webview'], '13.13.5');
+  assert.equal(lock.packages['node_modules/react-native-webview'].version, '13.13.5');
 });
