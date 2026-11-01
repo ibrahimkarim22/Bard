@@ -54,6 +54,8 @@ test('normal drawer retains every non-video destination and each item navigates 
   const retained = ['Home', 'Course', 'SynopsisList', 'FreeFolger', 'MyHighlights', 'About', 'Contact'];
   for (const signedIn of [false, true]) {
     const h = navigator({ signedIn });
+    assert.equal(nodes(h.main, 'DrawerScreen').find(node => node.props.name === 'About').props.component, '../screens/AboutScreen');
+    assert.equal(nodes(h.main, 'DrawerScreen').find(node => node.props.name === 'Contact').props.component, '../screens/Contact');
     const expected = [...retained, ...(signedIn ? [] : ['SignUp', 'Login'])];
     assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), expected);
     const buttons = nodes(h.content, 'Pressable');

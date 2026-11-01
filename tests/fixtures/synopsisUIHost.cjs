@@ -62,6 +62,7 @@ function synopsisUIHost(options = {}) {
   native.StyleSheet = { create: value => value };
   native.Platform = { OS: 'android', select: value => value.android || value.default };
   native.Keyboard = { dismiss: () => calls.push(['keyboard-dismiss']) };
+  native.Linking = options.linking || { openURL: async () => {} };
   function load(file) {
     if (cache.has(file)) return cache.get(file);
     if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -73,6 +74,7 @@ function synopsisUIHost(options = {}) {
       if (name === 'react') return React;
       if (name === 'react-native') return native;
       if (name === 'expo-font') return { useFonts: () => [fontsLoaded, null] };
+      if (name === 'expo-constants') return { __esModule: true, default: options.constants || {} };
       if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView' };
       if (name === 'react-native-gesture-handler') return { ScrollView: 'ScrollView' };
       if (name === '@react-navigation/native') return { useRoute: () => route, useNavigation: () => navigation };
