@@ -5,27 +5,21 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { EditorialText } from "../shared/EditorialUI";
+import { EDITORIAL_COLORS as C, EDITORIAL_SPACING as S } from "../shared/editorialTheme";
 
 export const COURSE_COLORS = Object.freeze({
-  background: "#0b0d10",
-  panel: "#16181b",
-  border: "#383329",
-  text: "#f3ecdf",
-  muted: "#b5ac9d",
-  gold: "#b9a177",
-  onGold: "#17140e",
-  success: "#b5c4ad",
-  danger: "#d3a69f",
+  ...C,
+  panel: C.surface,
 });
 
 export function CoursePage({ children, scrollRef, contentContainerStyle, overlay }) {
   return (
     <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
-      <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -41,15 +35,15 @@ export function CoursePage({ children, scrollRef, contentContainerStyle, overlay
 
 export function CourseText({ children, tone = "body", style, ...props }) {
   return (
-    <Text allowFontScaling {...props} style={[styles.body, styles[tone], style]}>
+    <EditorialText {...props} style={[styles.body, styles[tone], style]}>
       {children}
-    </Text>
+    </EditorialText>
   );
 }
 
 export function CourseActivityPage({ children, footer, scrollRef }) {
   return <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
-    <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
+    <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
     <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.activityContent}
       keyboardShouldPersistTaps="handled">{children}</ScrollView>
     <View style={styles.activityFooter}>{footer}</View>
@@ -60,7 +54,7 @@ export function CourseHeading({ eyebrow, title, subtitle, titleStyle }) {
   return (
     <View style={styles.heading}>
       {!!eyebrow && <CourseText tone="accent" style={styles.eyebrow}>{eyebrow}</CourseText>}
-      <CourseText accessibilityRole="header" style={[styles.title, titleStyle]}>{title}</CourseText>
+      <CourseText serif accessibilityRole="header" style={[styles.title, titleStyle]}>{title}</CourseText>
       {!!subtitle && <CourseText tone="muted">{subtitle}</CourseText>}
     </View>
   );
@@ -106,22 +100,22 @@ export function CourseButton({
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: COURSE_COLORS.background },
   scroll: { flex: 1 },
-  content: { width: "100%", maxWidth: 720, alignSelf: "center", padding: 24, paddingBottom: 32, gap: 24 },
+  content: { width: "100%", maxWidth: S.maxWidth, alignSelf: "center", padding: S.horizontal, paddingBottom: 32, gap: S.section },
   activityContent: { width: "100%", maxWidth: 720, alignSelf: "center", padding: 20, paddingBottom: 24, gap: 16 },
   activityFooter: { width: "100%", maxWidth: 720, alignSelf: "center", paddingHorizontal: 20, paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COURSE_COLORS.border, backgroundColor: COURSE_COLORS.background },
   heading: { gap: 10 },
-  title: { fontSize: 32, lineHeight: 41, fontWeight: "700" },
+  title: { fontSize: 32, lineHeight: 41, fontWeight: "400" },
   eyebrow: { fontSize: 13, lineHeight: 20, fontWeight: "700", letterSpacing: 1 },
   body: { color: COURSE_COLORS.text, fontSize: 17, lineHeight: 26 },
   muted: { color: COURSE_COLORS.muted },
   accent: { color: COURSE_COLORS.gold },
   success: { color: COURSE_COLORS.success },
   danger: { color: COURSE_COLORS.danger },
-  panel: { backgroundColor: COURSE_COLORS.panel, borderColor: COURSE_COLORS.border, borderWidth: 1, borderRadius: 14, padding: 20, gap: 16 },
+  panel: { backgroundColor: COURSE_COLORS.panel, borderColor: COURSE_COLORS.border, borderWidth: StyleSheet.hairlineWidth, borderRadius: 7, padding: 20, gap: 16 },
   button: { minHeight: 52, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 10 },
-  primary: { backgroundColor: COURSE_COLORS.gold, borderColor: "#d0b88b" },
-  secondary: { backgroundColor: "#191a1c", borderColor: "#514735" },
+  primary: { backgroundColor: COURSE_COLORS.gold, borderColor: COURSE_COLORS.gold },
+  secondary: { backgroundColor: C.soft, borderColor: C.soft },
   quiet: { backgroundColor: "transparent", borderColor: "transparent" },
   buttonLabel: { flexShrink: 1, fontSize: 16, lineHeight: 24, fontWeight: "700", textAlign: "center" },
   primaryLabel: { color: COURSE_COLORS.onGold },

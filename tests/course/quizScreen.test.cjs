@@ -48,6 +48,7 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
   const cache = new Map(), imageHandles = new Map();
   function load(file, deps) {
     if (cache.has(file)) return cache.get(file);
+    if (file.endsWith('.ttf')) { assert.ok(fs.existsSync(file), 'the bundled font exists'); return file; }
     const code = babel.transformFileSync(file, { babelrc: false, configFile: false,
       plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
     const module = { exports: {} };
@@ -109,10 +110,12 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
     findNodeHandle: value => value?.nativeTag, AccessibilityInfo: { setAccessibilityFocus: value => focus.push(value), isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove() {} }) },
     useWindowDimensions: () => ({ width: 411, height: 914, fontScale: 1 }),
     BackHandler: { addEventListener: (event, callback) => { backListeners.add(callback); return { remove: () => backListeners.delete(callback) }; } },
-    StyleSheet: { create: value => value }, Alert: { alert: (...args) => calls.push(['alert', ...args]) } };
+    StyleSheet: { create: value => value, flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)), hairlineWidth: 1 },
+    Platform: { OS: 'android' }, Alert: { alert: (...args) => calls.push(['alert', ...args]) } };
   const file = path.join(root, 'screens/QuizScreen.js');
   const Screen = load(file, {
     react: React, 'react-native': native, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' }, 'react-native-gesture-handler': { ScrollView: 'ScrollView' },
+    'expo-font': { useFonts: () => [true, null] },
     'react-native-elements': { Card, Button: 'Button', Overlay: 'Overlay', Image: 'Image' },
     '@react-navigation/native': { useRoute: () => route, useNavigation: () => navigation, useIsFocused: () => true },
     'react-redux': { useSelector: select => select(store.getState()), useDispatch: () => dispatch },

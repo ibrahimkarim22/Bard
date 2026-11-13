@@ -1,13 +1,7 @@
 import {
   ActivityIndicator,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
-  StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -25,14 +19,17 @@ import { FIREBASE_AUTH, FIRESTORE_DB } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { useNavigation } from "@react-navigation/native";
-import FolgerMidsummer from "../assets/images/FolgerMidsummer.jpg";
+import AuthStage, { AUTH_COLORS as C } from './AuthStage';
+import { EditorialText as Text } from "../shared/EditorialUI";
 
 const AuthInput = ({ icon, rightElement, ...props }) => (
   <View style={styles.inputWrap}>
-    <FontAwesomeIcon icon={icon} size={15} color="#8f8474" />
+    <FontAwesomeIcon icon={icon} size={15} color={C.muted} />
     <TextInput
       {...props}
-      placeholderTextColor="#8f8474"
+      accessibilityLabel={props.placeholder}
+      placeholderTextColor={C.muted}
+      allowFontScaling
       style={styles.input}
     />
     {rightElement}
@@ -83,24 +80,9 @@ const SignUpScreen = () => {
   };
 
   return (
-    <ImageBackground source={FolgerMidsummer} style={styles.background}>
-      <StatusBar barStyle="light-content" backgroundColor="#050505" />
-      <View style={styles.overlay} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+    <AuthStage scene="sun" navigation={navigation}>
           <View style={styles.header}>
-            <Text style={styles.eyebrow}>Start the course</Text>
-            <Text style={styles.title}>Create your BARD account.</Text>
-            <Text style={styles.subtitle}>
-              Save progress, unlock medals, and build toward your certificate.
-            </Text>
+            <Text serif accessibilityRole="header" style={styles.title}>Create account</Text>
           </View>
 
           <View style={styles.card}>
@@ -155,13 +137,16 @@ const SignUpScreen = () => {
                   <FontAwesomeIcon
                     icon={showPassword ? faEyeSlash : faEye}
                     size={16}
-                    color="#6f665c"
+                    color={C.muted}
                   />
                 </Pressable>
               }
             />
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Create account"
+              accessibilityState={{ disabled: loading, busy: loading }}
               onPress={SignUp}
               disabled={loading}
               style={({ pressed }) => [
@@ -171,104 +156,78 @@ const SignUpScreen = () => {
               ]}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#130f0b" />
+                <ActivityIndicator size="small" color={C.onGold} />
               ) : (
                 <>
-                  <FontAwesomeIcon icon={faUserPlus} size={16} color="#130f0b" />
+                  <FontAwesomeIcon icon={faUserPlus} size={16} color={C.onGold} />
                   <Text style={styles.primaryButtonText}>Create account</Text>
                 </>
               )}
             </Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </ImageBackground>
+    </AuthStage>
   );
 };
 
 const styles = StyleSheet.create({
-  background: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(5, 5, 5, 0.78)",
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  content: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingHorizontal: 22,
-    paddingVertical: 28,
-  },
   header: {
-    marginBottom: 24,
-  },
-  eyebrow: {
-    color: "#d8bd73",
-    fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 10,
-    textTransform: "uppercase",
+    marginBottom: 28,
   },
   title: {
-    color: "#fff8ef",
-    fontSize: 36,
-    fontWeight: "800",
-    lineHeight: 40,
-  },
-  subtitle: {
-    color: "#cfc6b8",
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 12,
+    color: C.text,
+    fontSize: 26,
+    fontWeight: "400",
+    lineHeight: 34,
   },
   card: {
-    backgroundColor: "rgba(18, 18, 18, 0.94)",
-    borderColor: "rgba(216, 189, 115, 0.22)",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 13,
-    padding: 18,
+    gap: 16,
   },
   nameRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
   },
   nameField: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 200,
+    minWidth: 0,
   },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: "#f1ece3",
-    borderRadius: 8,
+    backgroundColor: C.background,
+    borderColor: C.border,
+    borderWidth: 1,
+    borderRadius: 6,
     flexDirection: "row",
-    height: 56,
-    paddingHorizontal: 16,
+    minHeight: 56,
+    paddingHorizontal: 12,
   },
   input: {
-    color: "#16120e",
+    color: C.text,
     flex: 1,
-    fontSize: 16,
+    minWidth: 0,
+    minHeight: 56,
+    fontSize: 14,
+    lineHeight: 22,
+    paddingVertical: 14,
     marginLeft: 11,
   },
   visibilityButton: {
     alignItems: "center",
-    height: 40,
+    minHeight: 48,
     justifyContent: "center",
-    marginLeft: 8,
-    width: 40,
+    marginLeft: 4,
+    minWidth: 48,
   },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: "#d8bd73",
+    backgroundColor: C.gold,
     borderRadius: 8,
     flexDirection: "row",
     gap: 9,
-    height: 56,
+    minHeight: 56,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     justifyContent: "center",
   },
   disabledButton: {
@@ -279,9 +238,12 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
   primaryButtonText: {
-    color: "#130f0b",
+    color: C.onGold,
     fontSize: 16,
-    fontWeight: "800",
+    lineHeight: 24,
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "center",
   },
 });
 

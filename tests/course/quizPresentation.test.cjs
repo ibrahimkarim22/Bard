@@ -1,11 +1,13 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 const babel = require('@babel/core');
 const root = path.resolve(__dirname, '../..');
 const native = Object.fromEntries(['Text','View','Pressable','ScrollView','StatusBar','ActivityIndicator','Modal'].map(name => [name,name]));
-native.StyleSheet = { create: value => value };
+native.StyleSheet = { create: value => value, flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)), hairlineWidth: 1 };
+native.Platform = { OS: 'android' };
 const React = { createElement(type, props, ...children) {
   const next = { ...props, children }; return typeof type === 'function' ? type(next) : { type, props: next };
 }, useRef: value => ({ current: value }), useMemo: fn => fn(), useCallback: fn => fn,
@@ -13,6 +15,7 @@ useState: value => [value, () => {}] };
 const cache = new Map();
 function load(file) {
   if (cache.has(file)) return cache.get(file);
+  if (file.endsWith('.ttf')) { assert.ok(fs.existsSync(path.join(root, file)), 'the bundled font exists'); return file; }
   if (file === 'course/MedalArtwork.js') return { __esModule: true, default: ({ play }) => ({ type: 'Image', props: { source: play.medalImage, children: [] } }) };
   if (file === 'course/QuizCelebration.js') return { __esModule: true, default: props => {
     const presentation={ type: 'CurtainCall', props };
@@ -24,9 +27,10 @@ function load(file) {
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(name=>{
     if(name==='react')return React;
     if(name==='react-native')return native;
+    if(name==='expo-font')return {useFonts:()=>[true,null]};
     if(name==='react-native-safe-area-context')return {SafeAreaView:'SafeAreaView'};
     if(name==='@react-navigation/native')return {useIsFocused:()=>true};
-    return name.startsWith('.') ? load(path.posix.join(path.posix.dirname(file),name+'.js')) : require(name);
+    return name.startsWith('.') ? load(path.posix.join(path.posix.dirname(file),name+(path.posix.extname(name)?'':'.js'))) : require(name);
   },module,module.exports);cache.set(file,module.exports);return module.exports;
 }
 const nodes = (t,type) => !t||typeof t!=='object'?[]:[...(t.type===type?[t]:[]),...(t.props.children||[]).flat(Infinity).flatMap(c=>nodes(c,type))];

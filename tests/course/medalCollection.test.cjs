@@ -77,6 +77,7 @@ function component(file, dimensions = { width: 411, fontScale: 1 }) {
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename: file })(name => {
     if (name === 'react') return React;
     if (name === 'react-native') return native;
+    if (name === '../shared/EditorialUI') return { EditorialText: native.Text };
     if (name === './MedalArtwork') return { __esModule: true, default: 'MedalArtwork' };
     if (name === './LockedMedal') return { __esModule: true, default: 'LockedMedal' };
     // Keep removed stage decoration observable if it is accidentally mounted again.

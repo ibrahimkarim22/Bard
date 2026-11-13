@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   creditGroup: { gap: 10 },
   creditTitle: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
   link: { minHeight: 48, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 2 },
-  linkLabel: { color: '#d0b88b', textDecorationLine: 'underline', fontSize: 16, lineHeight: 25 },
+  linkLabel: { color: COURSE_COLORS.gold, textDecorationLine: 'underline', fontSize: 16, lineHeight: 25 },
   pressed: { opacity: 0.75 },
   version: { fontSize: 14, lineHeight: 22 },
 });

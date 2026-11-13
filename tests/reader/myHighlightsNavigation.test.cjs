@@ -5,9 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const babel = require('@babel/core');
 const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [...(tree.type === type ? [tree] : []), ...(tree.props?.children || []).flat(Infinity).flatMap(child => nodes(child, type))];
-function navigator({ signedIn = false } = {}) {
+function navigator({ signedIn = false, fontScale = 1, top = 24 } = {}) {
   const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {}, useState: initial => [initial === null && signedIn ? { uid: 'test-account' } : initial, () => {}] };
-  const native = { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Pressable: 'Pressable', Text: 'Text', View: 'View' };
+  const native = { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Pressable: 'Pressable', Text: 'Text', View: 'View', useWindowDimensions: () => ({fontScale}) };
   const calls = [];
   const imports = [];
   const load = name => {
@@ -17,10 +17,12 @@ function navigator({ signedIn = false } = {}) {
     if (name === 'react-native') return native;
     if (name === '@react-navigation/stack') return { createStackNavigator: () => ({ Navigator: 'Stack', Screen: 'StackScreen' }) };
     if (name === '@react-navigation/drawer') return { createDrawerNavigator: () => ({ Navigator: 'Drawer', Screen: 'DrawerScreen' }), DrawerContentScrollView: 'DrawerScroll' };
-    if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView' };
+    if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({top}) };
     if (name === 'expo-constants') return {};
     if (name === 'firebase/auth') return { onAuthStateChanged() {} };
     if (name === '../firebaseConfig') return {};
+    if (name === '../shared/editorialTheme') return require('../../shared/editorialTheme');
+    if (name === '../shared/EditorialUI') return { EditorialText: props => ({ type: 'Text', props }) };
     if (name.includes('fontawesome')) return {};
     return { __esModule: true, default: name, RootScreen: name };
   };
@@ -56,6 +58,9 @@ test('normal drawer retains every non-video destination and each item navigates 
     const h = navigator({ signedIn });
     assert.equal(nodes(h.main, 'DrawerScreen').find(node => node.props.name === 'About').props.component, '../screens/AboutScreen');
     assert.equal(nodes(h.main, 'DrawerScreen').find(node => node.props.name === 'Contact').props.component, '../screens/Contact');
+    const contact = nodes(h.main, 'DrawerScreen').find(node => node.props.name === 'Contact');
+    assert.equal(contact.props.options.title, 'Contact & Feedback');
+    assert.equal(contact.props.options.headerTitle(), null, 'the body supplies the single visible page heading');
     const expected = [...retained, ...(signedIn ? [] : ['SignUp', 'Login'])];
     assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), expected);
     const buttons = nodes(h.content, 'Pressable');
@@ -80,6 +85,35 @@ test('retained lesson, quiz, synopsis, reader, account, and highlight stack rout
     ['ReadFolger', '../screens/Read'], ['PlayHighlights', '../screens/PlayHighlightsScreen'],
     ['Synopsis', '../screens/JustSynopsis'],
   ]);
+});
+
+test('account scenes use the supported no-slide stack option for curtain handoffs', () => {
+  const h = navigator();
+  for (const name of ['Root', 'Login', 'SignUp']) {
+    const route = nodes(h.stack, 'StackScreen').find(node => node.props.name === name);
+    assert.equal(route.props.options.animation, 'none');
+    assert.equal(route.props.options.animationEnabled, undefined);
+    assert.equal(route.props.options.headerShown, false);
+  }
+});
+
+test('visible navigators own the top inset without a padded outer safe area or per-route override', () => {
+  const h = navigator();
+  assert.equal(h.main.type, 'View', 'the drawer shell must not consume the top inset before its header');
+  assert.equal(h.main.props.style.paddingTop, undefined);
+  assert.equal(h.stack.props.style.paddingTop, undefined);
+  for (const screen of nodes(h.main, 'DrawerScreen')) {
+    assert.equal(screen.props.options?.headerStatusBarHeight, undefined, screen.props.name);
+  }
+});
+
+test('one shared header geometry reserves scaled two-line titles without adding a second top inset', () => {
+  for (const [fontScale, want] of [[1, 88], [1.5, 114]]) {
+    const h = navigator({ fontScale, top: 24 });
+    const flatten = value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean));
+    assert.equal(flatten(nodes(h.main, 'Drawer')[0].props.screenOptions.headerStyle).height, want);
+    assert.equal(flatten(nodes(h.stack, 'Stack')[0].props.screenOptions.headerStyle).height, want);
+  }
 });
 
 test('unused video implementations, data, and YouTube package are removed while the reader WebView remains', () => {

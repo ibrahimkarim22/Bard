@@ -20,13 +20,12 @@ import ContactScreen from "../screens/Contact";
 import Lesson from "../screens/LessonScreen";
 import Synopsis from "../screens/JustSynopsis";
 import SynopsisList from "../screens/SynopsisList";
-import { Pressable, StyleSheet, View, Text, Platform } from "react-native";
-import Constants from "expo-constants";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faBarcode,
   faCrown,
-  faEye,
   faFeather,
   faHouseFlag,
   faLightbulb,
@@ -35,68 +34,68 @@ import {
   faUserPlus,
   faWalkieTalkie,
 } from "@fortawesome/free-solid-svg-icons";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { FIREBASE_AUTH } from "../firebaseConfig";
+import { EditorialText as Text } from "../shared/EditorialUI";
+import { EDITORIAL_COLORS as C } from "../shared/editorialTheme";
 
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
+
+function useEditorialHeaderStyle() {
+  const { top } = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  // Reserve two 26-point title lines at the user's text scale. Only the header
+  // owns the status-bar inset; no surrounding screen adds it again.
+  return { backgroundColor: C.background, height: top + Math.max(64, 52 * fontScale + 12) };
+}
 
 const drawerItems = [
   {
     name: "Home",
     label: "Home",
-    description: "Profile and progress",
     icon: faHouseFlag,
   },
   {
     name: "Course",
     label: "Course",
-    description: "Continue the path",
     icon: faCrown,
   },
   {
     name: "SynopsisList",
-    label: "Synopsis",
-    description: "Story summaries",
+    label: "Synopses",
     icon: faBarcode,
   },
   {
     name: "FreeFolger",
     label: "Library",
-    description: "Read the plays",
     icon: faFeather,
   },
   {
     name: "MyHighlights",
     label: "My Highlights",
-    description: "Your saved passages",
     icon: faLightbulb,
   },
   {
     name: "About",
     label: "About",
-    description: "The project",
     icon: faUmbrella,
   },
   {
     name: "Contact",
-    label: "Contact",
-    description: "Get in touch",
+    label: "Contact & Feedback",
     icon: faWalkieTalkie,
   },
   {
     name: "SignUp",
     label: "Create account",
-    description: "Start fresh",
     icon: faUserPlus,
     account: true,
   },
   {
     name: "Login",
     label: "Log in",
-    description: "Resume progress",
     icon: faRightToBracket,
     account: true,
   },
@@ -119,15 +118,12 @@ const DrawerNavItem = ({ item, focused, navigation }) => (
       <FontAwesomeIcon
         icon={item.icon}
         size={16}
-        color={focused ? "#0a0907" : "#d9bf72"}
+        color={focused ? C.gold : C.muted}
       />
     </View>
     <View style={styles.drawerNavCopy}>
       <Text style={[styles.drawerNavLabel, focused && styles.drawerNavLabelActive]}>
         {item.label}
-      </Text>
-      <Text style={[styles.drawerNavMeta, focused && styles.drawerNavMetaActive]}>
-        {item.description}
       </Text>
     </View>
     <View
@@ -152,28 +148,10 @@ const CustomDrawerContent = (props) => {
       contentContainerStyle={styles.drawerContent}
     >
       <View style={styles.drawerBrand}>
-        <View style={styles.drawerBrandTopline}>
-          <Text style={styles.drawerBrandKicker}>BARD</Text>
-          <View style={styles.drawerBrandRule} />
-        </View>
-        <Text style={styles.drawerBrandTitle}>Shakespeare Library</Text>
-        <Text style={styles.drawerBrandSubtitle}>
-          Local plays, course progress, and saved passages.
-        </Text>
-        <View style={styles.drawerBrandStats}>
-          <View style={styles.drawerBrandStat}>
-            <Text style={styles.drawerBrandStatValue}>38</Text>
-            <Text style={styles.drawerBrandStatLabel}>plays</Text>
-          </View>
-          <View style={styles.drawerBrandDivider} />
-          <View style={styles.drawerBrandStat}>
-            <Text style={styles.drawerBrandStatValue}>100%</Text>
-            <Text style={styles.drawerBrandStatLabel}>local</Text>
-          </View>
-        </View>
+        <Text serif style={styles.drawerBrandTitle}>BARD</Text>
       </View>
 
-      <Text style={styles.drawerSectionLabel}>Navigate</Text>
+      <Text style={styles.drawerSectionLabel}>Explore</Text>
       <View style={styles.drawerNavGroup}>
         {primaryItems.map((item) => (
           <DrawerNavItem
@@ -201,15 +179,13 @@ const CustomDrawerContent = (props) => {
         </>
       )}
 
-      <View style={styles.drawerFooter}>
-        <FontAwesomeIcon icon={faEye} size={14} color="#d9bf72" />
-        <Text style={styles.drawerFooterText}>Offline-ready reading path</Text>
-      </View>
+
     </DrawerContentScrollView>
   );
 };
 
 const Main = () => {
+  const headerStyle = useEditorialHeaderStyle();
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -223,15 +199,16 @@ const Main = () => {
     return () => unsubscribe();
   }, []);
   return (
-    <SafeAreaView style={styles.drawerContainer}>
+    <View style={styles.drawerContainer}>
       <Drawer.Navigator
         drawerContent={CustomDrawerContent}
         screenOptions={{
           drawerStyle: styles.drawerShell,
           sceneContainerStyle: styles.drawerScene,
-          headerStyle: styles.drawerHeader,
-          headerTintColor: "#f7f0df",
+          headerStyle: [styles.drawerHeader, headerStyle],
+          headerTintColor: C.text,
           headerTitleStyle: styles.drawerHeaderTitle,
+          headerTitle: ({ children, tintColor }) => <Text accessibilityRole="header" style={[styles.drawerHeaderTitle, { color: tintColor }]}>{children}</Text>,
         }}
       >
         <Drawer.Screen
@@ -269,8 +246,8 @@ const Main = () => {
           name="SynopsisList"
           component={SynopsisList}
           options={{
-            title: "Synopsis",
-            headerStatusBarHeight: 0,
+            title: "Synopses",
+            headerTitle: () => null,
             drawerLabelStyle: { color: "white" },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
@@ -286,7 +263,8 @@ const Main = () => {
           name="FreeFolger"
           component={FreeFolger}
           options={{
-            title: "Free Folger",
+            title: "Library",
+            headerTitle: () => null,
             drawerLabelStyle: { color: "white" },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
@@ -322,6 +300,8 @@ const Main = () => {
           name="Contact"
           component={ContactScreen}
           options={{
+            title: "Contact & Feedback",
+            headerTitle: () => null,
             drawerLabelStyle: { color: "white" },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
@@ -339,7 +319,8 @@ const Main = () => {
               name="SignUp"
               component={SignUpScreen}
               options={{
-                title: "Sign Up",
+                title: "Create account",
+                headerShown: false,
                 drawerLabelStyle: { color: "white" },
                 drawerIcon: ({ focused }) => (
                   <FontAwesomeIcon
@@ -355,7 +336,7 @@ const Main = () => {
               name="Login"
               component={LoginScreen}
               options={{
-                headerShown: true,
+                headerShown: false,
                 drawerLabelStyle: { color: "white" },
                 drawerIcon: ({ focused }) => (
                   <FontAwesomeIcon
@@ -370,14 +351,16 @@ const Main = () => {
           </>
         )}
       </Drawer.Navigator>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const Stacks = () => {
+  const headerStyle = useEditorialHeaderStyle();
   const screenOptions = {
-    headerTintColor: "#f7f0df",
-    headerStyle: { backgroundColor: "#050505" },
+    headerTintColor: C.text,
+    headerStyle,
+    headerTitle: ({ children, tintColor }) => <Text accessibilityRole="header" style={[styles.drawerHeaderTitle, { color: tintColor }]}>{children}</Text>,
     headerTitleStyle: {
       fontWeight: "800",
     },
@@ -423,17 +406,17 @@ const Stacks = () => {
         <Stack.Screen
           name="Root"
           component={RootScreen}
-          options={{ headerShown: false }}
+          options={{ headerShown: false, animation: 'none' }}
         />
         <Stack.Screen
           name="Login"
           component={LoginScreen}
-          options={{ headerShown: true }}
+          options={{ title: "Log in", headerShown: false, animation: 'none', cardStyle: { backgroundColor: '#0e0c20' } }}
         />
         <Stack.Screen
           name="SignUp"
           component={SignUpScreen}
-          options={{ headerShown: true }}
+          options={{ title: "Create account", headerShown: false, animation: 'none', cardStyle: { backgroundColor: '#0e0c20' } }}
         />
         <Stack.Screen
           name="ReadFolger"
@@ -456,214 +439,27 @@ const Stacks = () => {
 };
 
 const styles = StyleSheet.create({
-  drawerContainer: {
-    flex: 1,
-    backgroundColor: "#050505",
-    paddingTop: Platform.OS === "android" ? 0 : Constants.statusBarHeight,
-  },
-  stackContainer: {
-    flex: 1,
-    backgroundColor: "#050505",
-    paddingTop: Platform.OS === "android" ? 0 : Constants.statusBarHeight,
-  },
-  drawerShell: {
-    width: 318,
-    backgroundColor: "#050505",
-  },
-  drawerScene: {
-    backgroundColor: "#050505",
-  },
-  drawerHeader: {
-    backgroundColor: "#050505",
-    elevation: 0,
-    shadowOpacity: 0,
-    borderBottomColor: "#17130c",
-    borderBottomWidth: 1,
-  },
-  drawerHeaderTitle: {
-    color: "#f7f0df",
-    fontWeight: "800",
-  },
-  sideDrawer: {
-    backgroundColor: "#050505",
-  },
-  drawerContent: {
-    paddingTop: 14,
-    paddingHorizontal: 14,
-    paddingBottom: 24,
-  },
-  drawerBrand: {
-    backgroundColor: "#12110f",
-    borderColor: "#2b261b",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
-    marginBottom: 18,
-  },
-  drawerBrandTopline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-  },
-  drawerBrandKicker: {
-    color: "#d9bf72",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0,
-  },
-  drawerBrandRule: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "#3d321e",
-  },
-  drawerBrandTitle: {
-    color: "#fbf5e7",
-    fontSize: 24,
-    fontWeight: "900",
-    lineHeight: 28,
-  },
-  drawerBrandSubtitle: {
-    color: "#a9a190",
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
-  },
-  drawerBrandStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#0a0a09",
-    borderRadius: 8,
-    borderColor: "#232016",
-    borderWidth: 1,
-    marginTop: 14,
-    paddingVertical: 10,
-  },
-  drawerBrandStat: {
-    flex: 1,
-    alignItems: "center",
-  },
-  drawerBrandStatValue: {
-    color: "#f4df9a",
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  drawerBrandStatLabel: {
-    color: "#817968",
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 2,
-    textTransform: "uppercase",
-  },
-  drawerBrandDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: "#282216",
-  },
-  drawerSectionLabel: {
-    color: "#817968",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0,
-    marginBottom: 8,
-    marginLeft: 4,
-    textTransform: "uppercase",
-  },
-  drawerNavGroup: {
-    gap: 7,
-    marginBottom: 18,
-  },
-  drawerNavItem: {
-    minHeight: 58,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#171715",
-    backgroundColor: "#0c0c0b",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 11,
-  },
-  drawerNavItemActive: {
-    backgroundColor: "#e1c56f",
-    borderColor: "#f0d889",
-  },
-  drawerNavItemPressed: {
-    opacity: 0.82,
-  },
-  drawerNavIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    backgroundColor: "#18150f",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 11,
-  },
-  drawerNavIconActive: {
-    backgroundColor: "rgba(10, 9, 7, 0.13)",
-  },
-  drawerNavCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  drawerNavLabel: {
-    color: "#f7f0df",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  drawerNavLabelActive: {
-    color: "#0a0907",
-  },
-  drawerNavMeta: {
-    color: "#7d7668",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 3,
-  },
-  drawerNavMetaActive: {
-    color: "#443817",
-  },
-  drawerNavSignal: {
-    width: 5,
-    height: 5,
-    borderRadius: 5,
-    backgroundColor: "transparent",
-    marginLeft: 8,
-  },
-  drawerNavSignalActive: {
-    backgroundColor: "#0a0907",
-  },
-  drawerFooter: {
-    minHeight: 44,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#242016",
-    backgroundColor: "#0b0a08",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 13,
-    gap: 9,
-    marginTop: 4,
-  },
-  drawerFooterText: {
-    color: "#a9a190",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  stackIcon: {
-    marginLeft: 10,
-    color: "royalblue",
-    fontSize: 24,
-  },
-
-  drawerIcon: {
-    width: 55,
-    borderRadius: 5,
-    padding: 4,
-    textAlign: "center",
-  },
+  drawerContainer: { flex: 1, backgroundColor: C.background },
+  stackContainer: { flex: 1, backgroundColor: C.background },
+  drawerShell: { width: 318, backgroundColor: C.background },
+  drawerScene: { backgroundColor: C.background },
+  drawerHeader: { backgroundColor: C.background, elevation: 0, shadowOpacity: 0, borderBottomColor: C.border, borderBottomWidth: StyleSheet.hairlineWidth },
+  drawerHeaderTitle: { color: C.text, fontSize: 19, fontWeight: '600' },
+  sideDrawer: { backgroundColor: C.background },
+  drawerContent: { paddingHorizontal: 18, paddingBottom: 28 },
+  drawerBrand: { paddingHorizontal: 12, paddingVertical: 28, marginBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  drawerBrandTitle: { color: C.text, fontSize: 33, lineHeight: 44, letterSpacing: 4 },
+  drawerSectionLabel: { color: C.muted, fontSize: 13, lineHeight: 20, marginBottom: 8, marginLeft: 12 },
+  drawerNavGroup: { gap: 4, marginBottom: 24 },
+  drawerNavItem: { minHeight: 52, borderRadius: 6, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12 },
+  drawerNavItemActive: { backgroundColor: C.soft },
+  drawerNavItemPressed: { opacity: 0.75 },
+  drawerNavIcon: { width: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  drawerNavCopy: { flex: 1, minWidth: 0 },
+  drawerNavLabel: { color: C.text, fontSize: 17, lineHeight: 25 },
+  drawerNavLabelActive: { color: C.gold, fontWeight: '600' },
+  drawerNavSignal: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'transparent', marginLeft: 8 },
+  drawerNavSignalActive: { backgroundColor: C.gold },
 });
 
 export default Stacks;
