@@ -1,153 +1,125 @@
-import { View, Text, StyleSheet, Linking } from "react-native";
-import { ScrollView } from "react-native-gesture-handler";
+import React, { useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import Constants from 'expo-constants';
+import { CourseHeading, CoursePage, CourseText, COURSE_COLORS } from '../course/CourseUI';
+import { SynopsisProse } from '../synopsis/SynopsisUI';
+import fontManifest from '../assets/reader-fonts/manifest.json';
 
-const AboutScreen = () => {
-  return (
-    <ScrollView style={styles.main}>
-      <View style={styles.textContainer}>
-        <Text style={styles.title}>Folger Shakespeare Library</Text>
-        <Text
-          style={styles.link}
-          onPress={() =>
-            Linking.openURL(
-              "https://www.folger.edu/teach/resource/the-folger-shakespeare-api-tools/"
-            )
-          }
-        >
-          https://www.folger.edu/teach/resource/the-folger-shakespeare-api-tools/
-        </Text>
-        <Text
-          style={styles.link}
-          onPress={() =>
-            Linking.openURL(
-              "https://www.folgerdigitaltexts.org/api?_ga=2.166164670.1096109316.1715025640-1153892906.1712805817"
-            )
-          }
-        >
-          https://www.folgerdigitaltexts.org/api?_ga=2.166164670.1096109316.1715025640-1153892906.1712805817
-        </Text>
-        <Text
-          style={styles.link}
-          onPress={() =>
-            Linking.openURL("https://creativecommons.org/licenses/by-nc/3.0/")
-          }
-        >
-          https://creativecommons.org/licenses/by-nc/3.0/
-        </Text>
-        <Text style={styles.header}>Copyright Policy</Text>
-        <Text style={styles.description}>
-          "The texts of Shakespeare’s works found on this site are from the
-          Folger Digital Texts collection. Folger Digital Texts is licensed
-          under a Creative Commons Attribution-NonCommercial 3.0 Unported
-          license. This means that anyone who wants to read, search, share,
-          remix, transform, and build on Folger Digital Texts is free to do so,
-          under two very important conditions: Attribution: Any time you create
-          a new version or distribute Folger Digital Texts in a form other than
-          the ones we make available here, you must credit Folger Digital Texts
-          as the original source, provide a link to the Creative Commons
-          license, and state whether any changes were made to the content.
-          NonCommercial: It’s important to us that the resources we make freely
-          available through Folger Digital Texts remain free. That means that
-          you may not use the material from Folger Digital Texts for commercial
-          purposes."
-        </Text>
-      </View>
-      <Text style={styles.title}>Folger Shakespeare Library Images</Text>
-      <Text
-        style={styles.link}
-        onPress={() =>
-          Linking.openURL(
-            "https://digitalcollections.folger.edu/reference_images"
-          )
-        }
-      >
-        https://digitalcollections.folger.edu/reference_images
-      </Text>
-      <Text
-        style={styles.link}
-        onPress={() =>
-          Linking.openURL(
-            "https://www.folger.edu/research/images-and-permissions/#permissions"
-          )
-        }
-      >
-        https://www.folger.edu/research/images-and-permissions/#permissions
-      </Text>
-      <Text style={styles.header}>
-        Permissions to use Folger's digital collection
-      </Text>
-      <Text style={styles.description}>
-        "Every item in our digital collections has a Rights section with
-        copyright information. We do not charge permission or publication fees
-        for images released under public domain or a CC0 license. If a copyright
-        holder other than “Folger Shakespeare Library” is listed in the Rights
-        section with an image, then we cannot grant permission for that image’s
-        reuse. You will need to contact the copyright holder directly to request
-        permission for reuse."
-      </Text>
-      <Text style={styles.title}>MIT Complete Works of Shakespeare</Text>
-      <Text
-        style={styles.link}
-        onPress={() => Linking.openURL("https://shakespeare.mit.edu/")}
-      >
-        https://shakespeare.mit.edu/
-      </Text>
-      <Text
-        style={styles.link}
-        onPress={() =>
-          Linking.openURL("https://github.com/TheMITTech/shakespeare/")
-        }
-      >
-        https://github.com/TheMITTech/shakespeare/
-      </Text>
-      <Text style={styles.header}>Permissions to use MIT Shakespeare</Text>
-      <Text style={styles.description}>
-        "Welcome to the Web's first edition of the Complete Works of William
-        Shakespeare. This site has offered Shakespeare's plays and poetry to the
-        Internet community since 1993. For other Shakespeare resources, visit
-        the Mr. William Shakespeare and the Internet Web site. The original
-        electronic source for this server was the Complete Moby(tm) Shakespeare.
-        The HTML versions of the plays provided here are placed in the public
-        domain. 5/10/23: Current copy taken from
-        https://github.com/TheMITTech/shakespeare/ and hosted by MIT IS&T in a
-        static location."
-      </Text>
-      <Text style={styles.title}>Quizzes</Text>
-      <Text style={styles.header}>Quizzes content</Text>
-      <Text style={styles.description}>
-        Quizzes questions and answers' content were generated by AI
-      </Text>
-    </ScrollView>
-  );
-};
+const fontNames = { literata: 'Literata', 'source-serif-4': 'Source Serif 4', 'source-sans-3': 'Source Sans 3' };
+const fontNotices = fontManifest.assets.filter(asset => asset.kind === 'license');
+const artworkRecords = [
+  ['As You Like It cover — Rijksmuseum', 'https://www.rijksmuseum.nl/en/collection/RP-P-2004-1176'],
+  ['A Midsummer Night’s Dream cover — Wikimedia Commons', 'https://commons.wikimedia.org/wiki/File:Simmons-Hermia_and_Lysander._A_Midsummer_Night%27s_Dream.jpg'],
+  ['Richard III cover — Rawpixel source record', 'https://www.rawpixel.com/image/8846003'],
+  ['Romeo and Juliet cover — Yale Center for British Art', 'https://collections.britishart.yale.edu/catalog/tms:237'],
+  ['The Tempest cover — Yale Center for British Art', 'https://collections.britishart.yale.edu/catalog/tms:11065'],
+  ['Twelfth Night cover — Yale Center for British Art', 'https://collections.britishart.yale.edu/catalog/tms:813'],
+];
+
+function CreditLink({ label, url, onOpen, error }) {
+  return <View><Pressable accessibilityRole="link" accessibilityLabel={label}
+    accessibilityHint="Opens in your browser." onPress={() => onOpen(url)}
+    style={({ pressed }) => [styles.link, pressed && styles.pressed]}>
+    <CourseText style={styles.linkLabel}>{label}</CourseText>
+  </Pressable>
+    {error && <CourseText accessibilityRole="alert" accessibilityLiveRegion="polite" tone="danger">Could not open this link. Please try again.</CourseText>}
+  </View>;
+}
+
+function CreditGroup({ title, children }) {
+  return <View style={styles.creditGroup}>
+    <CourseText accessibilityRole="header" style={styles.creditTitle}>{title}</CourseText>
+    {children}
+  </View>;
+}
+
+export default function AboutScreen() {
+  const [expanded, setExpanded] = useState(false);
+  const [linkError, setLinkError] = useState(null);
+  const linkRequest = useRef(0);
+  useEffect(() => () => { linkRequest.current++; }, []);
+  const version = Constants.expoConfig?.version;
+  const openLink = async url => {
+    const request = ++linkRequest.current;
+    setLinkError(null);
+    try {
+      await Linking.openURL(url);
+    } catch {
+      if (request === linkRequest.current) setLinkError(url);
+    }
+  };
+  const link = (label, url) => <CreditLink key={url} label={label} url={url} onOpen={openLink} error={linkError === url} />;
+
+  return <CoursePage>
+    <View style={styles.introduction}>
+      <View style={styles.rule} />
+      <CourseHeading title="Shakespeare, understood." />
+      <SynopsisProse>
+        Explore 38 plays through complete texts, original synopses, and source-backed quizzes. Save the passages that speak to you, follow each story at your own pace, and earn each play’s medal with a perfect quiz result.
+      </SynopsisProse>
+      <CourseText tone="muted" style={styles.creator}>Created by Ibrahim Karim.</CourseText>
+    </View>
+
+    <View style={styles.credits}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Sources & credits"
+        accessibilityState={{ expanded }} accessibilityHint={expanded ? 'Hide sources and credits.' : 'Show sources and credits.'}
+        onPress={() => { linkRequest.current++; setExpanded(value => !value); setLinkError(null); }}
+        style={({ pressed }) => [styles.disclosure, pressed && styles.pressed]}>
+        <CourseText style={styles.disclosureLabel}>Sources & credits</CourseText>
+        <CourseText accessible={false} style={styles.indicator}>{expanded ? '−' : '+'}</CourseText>
+      </Pressable>
+
+      {expanded && <View style={styles.creditContent}>
+        <CreditGroup title="Play texts">
+          <CourseText>William Shakespeare’s The Complete Works of William Shakespeare, Project Gutenberg eBook 100. Bard uses a bundled copy with the visible update date August 24, 2025.</CourseText>
+          <CourseText tone="muted">The source identifies the text as public domain in the USA. Use elsewhere is subject to local law.</CourseText>
+          {link('Project Gutenberg source edition', 'https://www.gutenberg.org/ebooks/100')}
+          {link('Project Gutenberg full license', 'https://www.gutenberg.org/policy/license.html')}
+        </CreditGroup>
+
+        <CreditGroup title="Synopses & quizzes">
+          <CourseText>Bard’s original synopses and quiz material are bundled with the app. Supporting quotations and references point to the bundled play text.</CourseText>
+        </CreditGroup>
+
+        <CreditGroup title="Artwork">
+          <CourseText>Artwork acknowledgments include Folger Shakespeare Library and Rawpixel. Cover-image metadata also identifies Rijksmuseum, Wikimedia Commons, Smithsonian, and Yale Center for British Art.</CourseText>
+          <CourseText tone="muted">The links below identify known collection sources. Item-level provenance is incomplete for some bundled artwork; rights vary by item.</CourseText>
+          {link('Folger Shakespeare Library digital collections', 'https://digitalcollections.folger.edu/')}
+          {link('Folger image permissions', 'https://www.folger.edu/research/images-and-permissions/')}
+          {artworkRecords.map(([label, url]) => link(label, url))}
+        </CreditGroup>
+
+        <CreditGroup title="Bundled fonts">
+          <CourseText>Literata — The Literata Project Authors. Source Serif 4 and Source Sans 3 — Adobe. All three use the SIL Open Font License 1.1.</CourseText>
+          <CourseText tone="muted">Original copyright and license notices are included with the fonts. Full notices for the bundled releases:</CourseText>
+          {fontNotices.map(notice => link(`${fontNames[notice.family]} copyright & license`, notice.url))}
+        </CreditGroup>
+
+        <CreditGroup title="Interface icons">
+          <CourseText>Font Awesome Free by Fonticons, Inc. The SVG icons use CC BY 4.0.</CourseText>
+          {link('Font Awesome Free full notices', 'https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.7.2/LICENSE.txt')}
+          {link('Creative Commons Attribution 4.0 license', 'https://creativecommons.org/licenses/by/4.0/')}
+        </CreditGroup>
+      </View>}
+    </View>
+
+    {typeof version === 'string' && !!version.trim() && <CourseText tone="muted" style={styles.version}>{`Version ${version}`}</CourseText>}
+  </CoursePage>;
+}
 
 const styles = StyleSheet.create({
-  main: {
-    flex: 1,
-    backgroundColor: "black",
-  },
-  textContainer: {
-    margin: 2,
-  },
-  title: {
-    color: "white",
-    fontSize: 22,
-    fontFamily: "serif",
-  },
-  header: {
-    color: "white",
-    fontSize: 18,
-    fontFamily: "sans-serif-light",
-  },
-  description: {
-    color: "white",
-    marginBottom: 18,
-    fontFamily: "serif",
-  },
-  link: {
-    color: "red",
-    textDecorationLine: "underline",
-  },
+  introduction: { gap: 20, paddingTop: 8 },
+  rule: { width: 44, height: 2, backgroundColor: COURSE_COLORS.gold, marginBottom: 4 },
+  creator: { fontSize: 16, lineHeight: 25, marginTop: 4 },
+  credits: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COURSE_COLORS.border },
+  disclosure: { minHeight: 56, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  disclosureLabel: { flex: 1, fontSize: 18, lineHeight: 27, fontWeight: '600' },
+  indicator: { color: COURSE_COLORS.gold, fontSize: 24, lineHeight: 30 },
+  creditContent: { gap: 28, paddingTop: 12 },
+  creditGroup: { gap: 10 },
+  creditTitle: { fontSize: 19, lineHeight: 28, fontWeight: '600' },
+  link: { minHeight: 48, justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 2 },
+  linkLabel: { color: COURSE_COLORS.gold, textDecorationLine: 'underline', fontSize: 16, lineHeight: 25 },
+  pressed: { opacity: 0.75 },
+  version: { fontSize: 14, lineHeight: 22 },
 });
-
-export default AboutScreen;

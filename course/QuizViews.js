@@ -20,7 +20,7 @@ export function QuizQuestion({ quiz, state, attempt, onEvidence, evidenceButtonR
         <View style={[styles.fill, { width: `${(state.index + 1) / quiz.questions.length * 100}%` }]} />
       </View>
     </View>
-    <CourseText accessibilityRole="header" style={styles.prompt}>{question.question}</CourseText>
+    <CourseText serif accessibilityRole="header" style={styles.prompt}>{question.question}</CourseText>
     {checked ? <CoursePanel style={[styles.feedback, correct ? styles.feedbackCorrect : styles.feedbackIncorrect]}>
       <CourseText accessibilityRole="header" accessibilityLiveRegion="polite" tone={correct ? "success" : "danger"}
         style={styles.feedbackTitle}>{correct ? "Correct" : "Not quite"}</CourseText>
@@ -157,21 +157,21 @@ const styles = StyleSheet.create({
   prompt: { fontSize: 23, lineHeight: 31, fontWeight: "700" },
   helper: { fontSize: 15, lineHeight: 22 },
   progress: { gap: 10 }, position: { fontSize: 13, lineHeight: 20, fontWeight: "600" },
-  track: { height: 2, borderRadius: 1, backgroundColor: "#34312b", overflow: "hidden" },
+  track: { height: 2, borderRadius: 1, backgroundColor: colors.border, overflow: "hidden" },
   fill: { height: "100%", backgroundColor: colors.gold },
   choices: { gap: 9 }, actions: { gap: 10 },
-  choice: { minHeight: 62, backgroundColor: "#17191c", borderColor: "#343331", borderWidth: 1,
-    borderRadius: 12, paddingHorizontal: 15, paddingVertical: 13, gap: 12, flexDirection: "row", alignItems: "center" },
-  selected: { borderColor: colors.gold, backgroundColor: "#27241d" },
+  choice: { minHeight: 62, backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1,
+    borderRadius: 7, paddingHorizontal: 15, paddingVertical: 13, gap: 12, flexDirection: "row", alignItems: "center" },
+  selected: { borderColor: colors.gold, backgroundColor: colors.soft },
   pressed: { opacity: 0.8 }, letter: { color: colors.muted, fontSize: 14, lineHeight: 22, fontWeight: "700", width: 20 },
   answer: { flex: 1, minWidth: 0, fontSize: 17, lineHeight: 24 },
   radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1, borderColor: "#817d73", alignItems: "center", justifyContent: "center" },
   selectedRadio: { borderColor: colors.gold }, radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.gold },
-  footerActions: { flexDirection: "row", gap: 12, alignItems: "stretch" }, previousAction: { flex: 1 }, primaryAction: { flex: 2 },
+  footerActions: { flexDirection: "row", gap: 12, alignItems: "stretch" }, previousAction: { flex: 1.2 }, primaryAction: { flex: 1.8 },
   stackedFooter: { flexDirection: "column", gap: 6 },
   feedback: { padding: 16, gap: 14 },
-  feedbackCorrect: { backgroundColor: "#191e1c", borderColor: "#485246" },
-  feedbackIncorrect: { backgroundColor: "#211c1e", borderColor: "#5a4645" },
+  feedbackCorrect: { backgroundColor: colors.correctSurface, borderColor: colors.success },
+  feedbackIncorrect: { backgroundColor: colors.incorrectSurface, borderColor: colors.danger },
   feedbackTitle: { fontSize: 23, lineHeight: 31, fontWeight: "700" },
   reviewTitle: { fontSize: 25, lineHeight: 33, fontWeight: "700" }, questionTitle: { fontWeight: "700" },
   performance: { gap: 20, paddingTop: 4 },
@@ -184,10 +184,10 @@ const styles = StyleSheet.create({
   medalName: { maxWidth: 320, fontFamily: "serif", textAlign: "center", fontSize: 21, lineHeight: 29, fontWeight: "400" },
   awardMessage: { textAlign: "center", fontSize: 16, lineHeight: 25 },
   revisit: { color: colors.muted, fontSize: 18, lineHeight: 27, textAlign: "center" },
-  resultNotice: { backgroundColor: "#15171a", borderColor: colors.border, padding: 18, gap: 8 },
+  resultNotice: { backgroundColor: colors.panel, borderColor: colors.border, padding: 18, gap: 8 },
   noticeTitle: { fontSize: 18, lineHeight: 26, fontWeight: "600" },
   nextPlay: { textAlign: "center", fontSize: 14, lineHeight: 22 },
   review: { gap: 14, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border },
-  reviewCard: { backgroundColor: "#141619" },
+  reviewCard: { backgroundColor: colors.panel },
   evidence: { borderLeftWidth: 2, borderLeftColor: colors.gold, paddingLeft: 14, gap: 8 },
 });

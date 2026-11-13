@@ -13,10 +13,10 @@ function host(name, state) {
   const same=(a,b)=>a&&b&&a.length===b.length&&a.every((x,i)=>Object.is(x,b[i]));
   const memo=(f,deps)=>{const i=cursor++;if(!slots[i]||!same(slots[i].deps,deps))slots[i]={value:f(),deps};return slots[i].value;};
   const effect=(f,deps)=>{const i=cursor++;if(!slots[i]||!same(slots[i].deps,deps))effects.push(()=>{slots[i]?.cleanup?.();slots[i]={deps,cleanup:f()};});};
-  const React={createElement:(type,props,...children)=>({type,props:{...props,children}}),useMemo:memo,useCallback:(f,d)=>memo(()=>f,d),useRef:v=>memo(()=>({current:v}),[]),useEffect:effect,useLayoutEffect:effect,
+  const React={createElement:(type,props,...children)=>typeof type==='function'?type({...props,children}):({type,props:{...props,children}}),useMemo:memo,useCallback:(f,d)=>memo(()=>f,d),useRef:v=>memo(()=>({current:v}),[]),useEffect:effect,useLayoutEffect:effect,
     useState:v=>{const i=cursor++;if(!slots[i])slots[i]={value:typeof v==='function'?v():v};return[slots[i].value,v=>{slots[i].value=typeof v==='function'?v(slots[i].value):v;}];}};
   const native=Object.fromEntries(['FlatList','Text','View','Pressable','ActivityIndicator','StatusBar','Image'].map(n=>[n,n]));
-  Object.assign(native,{StyleSheet:{create:s=>s},Alert:{alert:(...args)=>calls.push(['alert',...args])}});
+  Object.assign(native,{StyleSheet:{create:s=>s,flatten:style=>Object.assign({},...[style].flat(Infinity).filter(Boolean)),hairlineWidth:1},Platform:{OS:'android'},Alert:{alert:(...args)=>calls.push(['alert',...args])}});
   const navigation={push:(...args)=>calls.push(['push',...args]),navigate:(...args)=>calls.push(['navigate',...args]),setOptions:value=>calls.push(['options',value]),goBack:()=>calls.push(['back'])};
   const dependencies={react:React,'react-native':native,'@react-navigation/native':{useNavigation:()=>navigation,useFocusEffect:fn=>effect(fn,[fn])},'react-native-safe-area-context':{useSafeAreaInsets:()=>({bottom:16})},
     '../reader/useMyHighlights':{useMyHighlightsCatalogue:()=>state,useMyHighlightsWork:()=>state},
@@ -26,12 +26,66 @@ function host(name, state) {
   dependencies['../reader/HighlightEntry']={__esModule:true,default:'HighlightEntry'};
   dependencies['../reader/HighlightOptionsModal']={__esModule:true,default:'HighlightOptionsModal'};
   dependencies['../reader/HighlightStorageStatus']={__esModule:true,default:'HighlightStorageStatus'};
+  dependencies['../shared/localPlayService']={getLocalPlayEntry:key=>[
+    {slug:'hamlet',name:'Hamlet',mainImage:'cover:hamlet',play:{genre:'Tragedy'}},
+    {slug:'macbeth',name:'Macbeth',mainImage:'cover:macbeth',play:{genre:'Tragedy'}},
+  ].find(play=>play.slug===key)};
+  const helperFile=path.resolve(__dirname,'../../shared/EditorialUI.js');
+  const helper={exports:{}};
+  const helperCode=babel.transformFileSync(helperFile,{babelrc:false,configFile:false,plugins:['@babel/plugin-transform-react-jsx','@babel/plugin-transform-modules-commonjs']}).code;
+  vm.runInThisContext('(function(require,module,exports){'+helperCode+'\n})',{filename:helperFile})(name=>{
+    if(name==='react')return React;
+    if(name==='react-native')return native;
+    if(name==='expo-font')return{useFonts:()=>[true,null]};
+    if(name.endsWith('.ttf'))return name;
+    return require(path.resolve(path.dirname(helperFile),name));
+  },helper,helper.exports);
+  dependencies['../shared/EditorialUI']=helper.exports;
   const module={exports:{}};
   const code=babel.transformFileSync(file,{babelrc:false,configFile:false,plugins:['@babel/plugin-transform-react-jsx','@babel/plugin-transform-modules-commonjs']}).code;
   vm.runInThisContext('(function(require,module,exports){'+code+'\n})',{filename:file})(name=>dependencies[name]||require(path.join(path.dirname(file),name)),module,module.exports);
   return{calls,render(){cursor=0;effects=[];const tree=module.exports.default({route:{params:{workKey:'hamlet',ownerGeneration:1}},navigation});effects.forEach(f=>f());return tree;}};
 }
 const owner={uid:'a',generation:1,ready:true};
+
+test('overview illustrates each known work with its own cover and leaves unknown retained works without invented artwork',()=>{
+  const rows=[{workKey:'hamlet',title:'Hamlet',countLabel:'2 saved entries',available:true},
+    {workKey:'macbeth',title:'Macbeth',countLabel:'1 saved entry',available:true},
+    {workKey:'retained-unknown',title:'Retained title',countLabel:'1 saved entry',available:false}];
+  const h=host('MyHighlightsScreen',{owner,rows,loading:false,error:null});
+  const list=nodes(h.render(),'FlatList')[0];
+  for(const [index,source] of ['cover:hamlet','cover:macbeth'].entries()){
+    const row=list.props.renderItem({item:rows[index]});
+    assert.equal(nodes(row,'Image')[0]?.props.source,source);
+    assert.equal(nodes(row,'Image')[0].props.accessible,false);
+    assert.match(texts(row),new RegExp(rows[index].title));
+    assert.match(texts(row),new RegExp(rows[index].countLabel));
+    assert.ok(nodes(row,'Text').every(node=>node.props.allowFontScaling!==false));
+  }
+  const unknown=list.props.renderItem({item:rows[2]});
+  assert.equal(nodes(unknown,'Image').length,0);
+  assert.match(texts(unknown),/unavailable/);
+  nodes(unknown,'Pressable')[0].props.onPress();
+  assert.deepEqual(h.calls.find(call=>call[0]==='push'),['push','PlayHighlights',{workKey:'retained-unknown',ownerGeneration:1}]);
+});
+
+test('non-reader detail gives existing entries and sheets the editorial palette while keeping the navigation heading scalable',()=>{
+  const item={id:'a',quotation:'Exact saved passage',colorId:'sage',status:'resolved',record:{id:'a',revision:1}};
+  const state={owner,validOwner:true,play:{name:'Hamlet'},workId:'hamlet',items:[item],loading:false,error:null,snapshot:{saving:false,error:null},isCurrent:()=>true};
+  const h=host('PlayHighlightsScreen',state),tree=h.render();
+  const list=nodes(tree,'FlatList')[0];
+  const theme=nodes(list.props.renderItem({item,index:0}),'HighlightEntry')[0].props.theme;
+  assert.equal(theme.background,'#f5f0e6');
+  assert.equal(theme.text,'#292720');
+  for(const component of ['ReaderHighlightsModal','ReaderHighlightPicker','HighlightOptionsModal'])assert.equal(nodes(tree,component)[0].props.theme,theme);
+  const options=h.calls.find(call=>call[0]==='options')[1];
+  assert.equal(options.headerStyle,undefined,'inherit shared scaled header geometry instead of replacing it with a color-only style');
+  assert.equal(options.headerTintColor,'#292720');
+  const title=options.headerTitle({});
+  assert.equal(title.props.accessibilityRole,'header');
+  assert.equal(title.props.allowFontScaling,true);
+  assert.equal(Object.assign({},...[title.props.style].flat(Infinity).filter(Boolean)).fontFamily,'BardEditorialSerif');
+});
 
 test('overview and detail keep their navigation title without repeating it in the scrolling content',()=>{
   const state={owner,validOwner:true,play:{name:'Hamlet'},items:[],rows:[],loading:false,error:null,snapshot:{saving:false,error:null},isCurrent:()=>true,refreshReadOnly(){}};

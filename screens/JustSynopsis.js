@@ -16,7 +16,7 @@ function SynopsisBody({ synopsis, entry, navigation, view, updateView, offsets, 
   const readPlay = <CourseButton title="Read full play" variant="quiet"
     onPress={() => navigation.navigate('MIT', { id: synopsis.workId })} />;
   return <SafeAreaView style={styles.page} edges={['left', 'right', 'bottom']}>
-    <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
+    <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
     <View accessibilityRole="tablist" accessibilityLabel="Synopsis sections" style={styles.sections}>
       {sections.map(section => <Pressable key={section.id} accessibilityRole="tab" accessibilityLabel={section.label}
         accessibilityState={{ selected: view.section === section.id }}
@@ -96,9 +96,9 @@ const styles = StyleSheet.create({
   sections: { width: '100%', maxWidth: 720, alignSelf: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 4,
     paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COURSE_COLORS.border },
   sectionButton: { flexGrow: 1, flexShrink: 0, minWidth: 96, minHeight: 48, paddingHorizontal: 8, paddingVertical: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
-  selectedSection: { backgroundColor: '#29251c' },
+  selectedSection: { backgroundColor: COURSE_COLORS.soft },
   sectionLabel: { fontSize: 15, lineHeight: 23, color: COURSE_COLORS.muted, textAlign: 'center' },
-  selectedLabel: { color: '#e1c98e', fontWeight: '600' },
+  selectedLabel: { color: COURSE_COLORS.gold, fontWeight: '600' },
   scroll: { flex: 1 },
   content: { width: '100%', maxWidth: 680, alignSelf: 'center', paddingHorizontal: 24, paddingTop: 24, paddingBottom: 36, gap: 24 },
   spoilers: { fontSize: 14, lineHeight: 22 },

@@ -1,13 +1,7 @@
 import {
   ActivityIndicator,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
-  StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -24,16 +18,19 @@ import {
 import { FIREBASE_AUTH } from "../firebaseConfig";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import * as SecureStore from "expo-secure-store";
-import FolgerMidsummer from "../assets/images/FolgerMidsummer.jpg";
+import AuthStage, { AUTH_COLORS as C } from './AuthStage';
+import { EditorialText as Text } from "../shared/EditorialUI";
 
 const auth = FIREBASE_AUTH;
 
 const AuthInput = ({ icon, rightElement, ...props }) => (
   <View style={styles.inputWrap}>
-    <FontAwesomeIcon icon={icon} size={15} color="#8f8474" />
+    <FontAwesomeIcon icon={icon} size={15} color={C.muted} />
     <TextInput
       {...props}
-      placeholderTextColor="#8f8474"
+      accessibilityLabel={props.placeholder}
+      placeholderTextColor={C.muted}
+      allowFontScaling
       style={styles.input}
     />
     {rightElement}
@@ -94,24 +91,9 @@ const AuthLoginScreen = ({ navigation }) => {
   };
 
   return (
-    <ImageBackground source={FolgerMidsummer} style={styles.background}>
-      <StatusBar barStyle="light-content" backgroundColor="#050505" />
-      <View style={styles.overlay} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
+    <AuthStage scene="crescent" navigation={navigation}>
           <View style={styles.header}>
-            <Text style={styles.eyebrow}>Welcome back</Text>
-            <Text style={styles.title}>Continue your course.</Text>
-            <Text style={styles.subtitle}>
-              Pick up your progress, medals, and reading path.
-            </Text>
+            <Text serif accessibilityRole="header" style={styles.title}>Log in</Text>
           </View>
 
           <View style={styles.card}>
@@ -146,25 +128,31 @@ const AuthLoginScreen = ({ navigation }) => {
                   <FontAwesomeIcon
                     icon={showPassword ? faEyeSlash : faEye}
                     size={16}
-                    color="#6f665c"
+                    color={C.muted}
                   />
                 </Pressable>
               }
             />
 
             <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel="Remember me"
+              accessibilityState={{ checked: remember }}
               onPress={() => setRemember(!remember)}
               style={styles.rememberRow}
             >
               <View style={[styles.checkbox, remember && styles.checkboxOn]}>
                 {remember && (
-                  <FontAwesomeIcon icon={faCheck} size={11} color="#120f0a" />
+                  <FontAwesomeIcon icon={faCheck} size={11} color={C.onGold} />
                 )}
               </View>
               <Text style={styles.rememberText}>Remember me</Text>
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Log in"
+              accessibilityState={{ disabled: loading, busy: loading }}
               onPress={Login}
               disabled={loading}
               style={({ pressed }) => [
@@ -174,102 +162,72 @@ const AuthLoginScreen = ({ navigation }) => {
               ]}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#130f0b" />
+                <ActivityIndicator size="small" color={C.onGold} />
               ) : (
                 <>
                   <FontAwesomeIcon
                     icon={faRightToBracket}
                     size={16}
-                    color="#130f0b"
+                    color={C.onGold}
                   />
                   <Text style={styles.primaryButtonText}>Log in</Text>
                 </>
               )}
             </Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </ImageBackground>
+    </AuthStage>
   );
 };
 
 const styles = StyleSheet.create({
-  background: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(5, 5, 5, 0.78)",
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  content: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingHorizontal: 22,
-    paddingVertical: 28,
-  },
   header: {
-    marginBottom: 24,
-  },
-  eyebrow: {
-    color: "#d8bd73",
-    fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 10,
-    textTransform: "uppercase",
+    marginBottom: 28,
   },
   title: {
-    color: "#fff8ef",
-    fontSize: 36,
-    fontWeight: "800",
-    lineHeight: 40,
-  },
-  subtitle: {
-    color: "#cfc6b8",
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 12,
+    color: C.text,
+    fontSize: 26,
+    fontWeight: "400",
+    lineHeight: 34,
   },
   card: {
-    backgroundColor: "rgba(18, 18, 18, 0.94)",
-    borderColor: "rgba(216, 189, 115, 0.22)",
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 13,
-    padding: 18,
+    gap: 16,
   },
   inputWrap: {
     alignItems: "center",
-    backgroundColor: "#f1ece3",
-    borderRadius: 8,
+    backgroundColor: C.background,
+    borderColor: C.border,
+    borderWidth: 1,
+    borderRadius: 6,
     flexDirection: "row",
-    height: 56,
-    paddingHorizontal: 16,
+    minHeight: 56,
+    paddingHorizontal: 12,
   },
   input: {
-    color: "#16120e",
+    color: C.text,
     flex: 1,
-    fontSize: 16,
+    minWidth: 0,
+    minHeight: 56,
+    fontSize: 14,
+    lineHeight: 22,
+    paddingVertical: 14,
     marginLeft: 11,
   },
   visibilityButton: {
     alignItems: "center",
-    height: 40,
+    minHeight: 48,
     justifyContent: "center",
-    marginLeft: 8,
-    width: 40,
+    marginLeft: 4,
+    minWidth: 48,
   },
   rememberRow: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 34,
+    minHeight: 48,
+    paddingVertical: 10,
   },
   checkbox: {
     alignItems: "center",
-    borderColor: "#6b6257",
+    borderColor: C.muted,
     borderRadius: 5,
     borderWidth: 1,
     height: 22,
@@ -278,21 +236,25 @@ const styles = StyleSheet.create({
     width: 22,
   },
   checkboxOn: {
-    backgroundColor: "#d8bd73",
-    borderColor: "#d8bd73",
+    backgroundColor: C.gold,
+    borderColor: C.gold,
   },
   rememberText: {
-    color: "#ded6c9",
+    color: C.text,
     fontSize: 14,
+    lineHeight: 22,
     fontWeight: "600",
+    flexShrink: 1,
   },
   primaryButton: {
     alignItems: "center",
-    backgroundColor: "#d8bd73",
+    backgroundColor: C.gold,
     borderRadius: 8,
     flexDirection: "row",
     gap: 9,
-    height: 56,
+    minHeight: 56,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     justifyContent: "center",
   },
   disabledButton: {
@@ -303,9 +265,12 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
   primaryButtonText: {
-    color: "#130f0b",
+    color: C.onGold,
     fontSize: 16,
-    fontWeight: "800",
+    lineHeight: 24,
+    fontWeight: "600",
+    flexShrink: 1,
+    textAlign: "center",
   },
 });
 

@@ -24,7 +24,7 @@ export function QuizEvidenceModal({ question, sectionLabels, onClose, onShow, on
 const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: COURSE_COLORS.background },
   header: { paddingHorizontal: 20, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 12,
-    borderBottomColor: "#333437", borderBottomWidth: StyleSheet.hairlineWidth },
+    borderBottomColor: COURSE_COLORS.border, borderBottomWidth: StyleSheet.hairlineWidth },
   title: { flex: 1, minWidth: 0, fontSize: 20, lineHeight: 28, fontWeight: "700" },
   close: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", padding: 6 },
   closeGlyph: { fontSize: 26, lineHeight: 34 },

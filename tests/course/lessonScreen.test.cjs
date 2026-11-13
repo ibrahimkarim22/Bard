@@ -48,7 +48,7 @@ function host(options = {}) {
   const route = { params };
   const navigation = { navigate: (...args) => calls.push(args) };
   const native = Object.fromEntries(['View', 'Text', 'Button', 'Pressable', 'ScrollView', 'ActivityIndicator', 'StatusBar'].map(name => [name, name]));
-  native.StyleSheet = { create: value => value };
+  native.StyleSheet = { create: value => value, flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)) };
   native.Platform = { OS: 'android' };
   const cache = new Map();
   const dependencies = {
@@ -216,7 +216,7 @@ test('invalid or missing routes cannot silently open the first local play', () =
 
 test('lesson uses natural scrolling and labels allow font scaling without line limits', () => {
   const tree = host().render();
-  assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'light-content');
+  assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'dark-content');
   assert.equal(nodes(tree, 'ScrollView').length, 1);
   assert.deepEqual(nodes(tree, 'SafeAreaView')[0].props.edges, ['left', 'right', 'bottom']);
   for (const node of nodes(tree, 'Text')) {

@@ -6,19 +6,18 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faAward,
   faBookOpen,
+  faBookmark,
   faCamera,
   faCertificate,
   faChevronRight,
-  faCrown,
   faImage,
   faRightFromBracket,
   faXmark,
@@ -34,6 +33,8 @@ import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { FIREBASE_AUTH, FIRESTORE_DB } from "../firebaseConfig";
 import { PLAYS } from "../shared/localPlayService";
+import { EDITORIAL_COLORS as C, EDITORIAL_SPACING as S } from "../shared/editorialTheme";
+import { EditorialText } from "../shared/EditorialUI";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 const defaultProfileImage =
@@ -46,7 +47,8 @@ const HomeScreen = ({ navigation, route }) => {
   const [imageUrl, setImageUrl] = useState("");
   const [imageLoading, setImageLoading] = useState(false);
   const [imageModalVisible, setImageModalVisible] = useState(false);
-  const { width } = useWindowDimensions();
+  const scrollRef = useRef(null);
+  const { width, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
   const accountProgress = useAccountCourseProgress();
@@ -62,18 +64,23 @@ const HomeScreen = ({ navigation, route }) => {
   const totalPlays = collection.total;
   const completedPlays = collection.earnedCount;
   const confirmedLevel = Number.isSafeInteger(completedLevel) && completedLevel >= 0 ? completedLevel : 0;
-  const nextUnlockedLevel = Math.min(Math.max(...plays.map(play => play.difficulty)), confirmedLevel + 1);
   const medalCount = completedPlays;
   const progress = collection.completion;
-  const nextPlay =
-    plays.find((play) => play.difficulty === nextUnlockedLevel) || plays[0];
-  const isCompact = width < 360;
-  const horizontalPadding = isCompact ? 14 : 18;
-  const avatarSize = isCompact ? 78 : 94;
+  const courseComplete = totalPlays > 0 && progress >= 1;
+  const nextPlay = courseComplete ? plays[plays.length - 1]
+    : plays.find((play) => play.difficulty === confirmedLevel + 1);
+  const isCompact = width < 360 || fontScale > 1.2;
+  const horizontalPadding = S.horizontal;
+  const avatarSize = 64;
+  const selectTab = (tab) => {
+    setActiveTab(tab);
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  };
 
   useEffect(() => {
     if (route?.params?.tab !== "Medals") return;
     setActiveTab("Medals");
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
     navigation.setParams?.({ tab: undefined });
   }, [route?.key, route?.params?.tab, navigation]);
 
@@ -153,39 +160,44 @@ const HomeScreen = ({ navigation, route }) => {
 
   const renderOverview = () => (
     <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
+      <EditorialText style={styles.eyebrow}>Your Shakespeare course</EditorialText>
+      <EditorialText serif accessibilityRole="header" style={[styles.pageTitle, isCompact && styles.compactPageTitle]}>
+        Continue your course
+      </EditorialText>
       <View style={styles.coursePanel}>
-        <View style={styles.panelHeader}>
-          <View>
-            <Text style={styles.panelEyebrow}>
-              {progress >= 1 ? "Course complete" : "Current play"}
-            </Text>
-            <Text style={styles.panelTitle}>
-              {progress >= 1 ? "All plays completed" : nextPlay?.name || "BARD"}
-            </Text>
-          </View>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelBadgeText}>{nextUnlockedLevel}</Text>
-          </View>
-        </View>
-        <View style={styles.progressTrack}>
+        {nextPlay?.mainImage && <Image source={nextPlay.mainImage} resizeMode="cover"
+          accessibilityLabel={`${nextPlay.name} artwork`} style={styles.courseArtwork} />}
+        <EditorialText style={styles.panelEyebrow}>
+          {courseComplete ? "Course complete" : nextPlay ? `Play ${nextPlay.difficulty} · ${nextPlay.genre || "Shakespeare"}` : "Your course"}
+        </EditorialText>
+        <EditorialText serif accessibilityRole="header" style={styles.panelTitle}>
+          {courseComplete ? "All plays completed" : nextPlay?.name || "Course overview"}
+        </EditorialText>
+        {!nextPlay && <EditorialText style={styles.supportingCopy}>Open the course to see your available lessons.</EditorialText>}
+        <EditorialText style={styles.progressText}>{`${completedPlays} of ${totalPlays} plays completed`}</EditorialText>
+        <View accessibilityRole="progressbar" accessibilityLabel="Course progress"
+          accessibilityValue={{ min: 0, max: totalPlays, now: completedPlays }} style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
         </View>
-        <Text style={styles.progressText}>
-          {Math.round(progress * 100)}% complete
-        </Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={courseComplete ? "Revisit course" : nextPlay ? "Continue" : "View course"}
+          onPress={() => navigation.navigate("Course")}
+          style={({ pressed }) => [styles.continueButton, pressed && styles.pressed]}>
+          <EditorialText style={styles.continueText}>{courseComplete ? "Revisit course" : nextPlay ? "Continue" : "View course"}</EditorialText>
+          <FontAwesomeIcon icon={faChevronRight} size={14} color={C.onGold} />
+        </Pressable>
       </View>
 
-      <View style={styles.actionGrid}>
-        <DashboardAction
-          icon={faCrown}
-          label="Continue Course"
-          onPress={() => navigation.navigate("Course")}
-        />
+      <View style={styles.discovery}>
         <DashboardAction
           icon={faBookOpen}
-          label="Read Plays"
+          label="Browse plays"
+          detail="The complete library"
           onPress={() => navigation.navigate("FreeFolger")}
         />
+        <DashboardAction icon={faBookmark} label="Saved passages" detail="Your highlighted lines"
+          onPress={() => navigation.navigate("MyHighlights")} />
+        <DashboardAction icon={faAward} label="Medals" detail={`${medalCount} earned`}
+          onPress={() => selectTab("Medals")} />
       </View>
     </View>
   );
@@ -197,18 +209,18 @@ const HomeScreen = ({ navigation, route }) => {
     <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
       <View style={styles.certificatePanel}>
         <View style={styles.certificateIcon}>
-          <FontAwesomeIcon icon={faCertificate} size={28} color="#d8bd73" />
+          <FontAwesomeIcon icon={faCertificate} size={28} color={C.gold} />
         </View>
-        <Text style={styles.certificateTitle}>
+        <EditorialText serif accessibilityRole="header" style={styles.certificateTitle}>
           {progress >= 1 ? "Certificate ready" : "Certificate in progress"}
-        </Text>
-        <Text style={styles.certificateText}>
+        </EditorialText>
+        <EditorialText style={styles.certificateText}>
           Complete all {totalPlays} plays to unlock the final course certificate.
-        </Text>
+        </EditorialText>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
         </View>
-        <Text style={styles.progressText}>{Math.round(progress * 100)}% complete</Text>
+        <EditorialText style={styles.progressText}>{Math.round(progress * 100)}% complete</EditorialText>
       </View>
     </View>
   );
@@ -216,8 +228,9 @@ const HomeScreen = ({ navigation, route }) => {
   if (accountProgress.status !== "ready") return <CourseProgressNotice status={accountProgress.status} onRetry={retryAccountProgress} />;
   return (
     <SafeAreaView edges={["bottom"]} style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor="#050505" />
+      <StatusBar barStyle="dark-content" backgroundColor={C.background} />
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
@@ -225,51 +238,7 @@ const HomeScreen = ({ navigation, route }) => {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { padding: horizontalPadding }]}>
-          <View style={styles.profileRow}>
-            <View style={[styles.avatarWrap, { height: avatarSize, width: avatarSize }]}>
-              <Image
-                source={{ uri: imageUrl || defaultProfileImage }}
-                style={[
-                  styles.avatar,
-                  {
-                    borderRadius: avatarSize / 2,
-                    height: avatarSize,
-                    width: avatarSize,
-                  },
-                ]}
-              />
-              <Pressable
-                onPress={() => setImageModalVisible(true)}
-                style={styles.cameraButton}
-              >
-                {imageLoading ? (
-                  <ActivityIndicator size="small" color="#130f0b" />
-                ) : (
-                  <FontAwesomeIcon icon={faCamera} size={13} color="#130f0b" />
-                )}
-              </Pressable>
-            </View>
-            <View style={styles.profileCopy}>
-              <Text style={styles.welcome}>Welcome back</Text>
-              <Text
-                style={[styles.userName, isCompact && styles.compactUserName]}
-                numberOfLines={1}
-              >
-                {currentUser?.displayName || "Reader"}
-              </Text>
-              <Text style={styles.userEmail} numberOfLines={1}>
-                {currentUser?.email || "BARD member"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.metricsRow}>
-            <Metric value={completedPlays} label="completed" />
-            <Metric value={medalCount} label="medals" />
-            <Metric value={`${Math.round(progress * 100)}%`} label="course" />
-          </View>
-        </View>
+        {activeTab === "Overview" && renderOverview()}
 
         <View style={[styles.tabRow, { paddingHorizontal: horizontalPadding }]}>
           {tabs.map((tab) => (
@@ -278,32 +247,49 @@ const HomeScreen = ({ navigation, route }) => {
               accessibilityRole="tab"
               accessibilityLabel={tab}
               accessibilityState={{ selected: activeTab === tab }}
-              onPress={() => setActiveTab(tab)}
+              onPress={() => selectTab(tab)}
               style={[
                 styles.tabButton,
                 activeTab === tab && styles.activeTabButton,
               ]}
             >
-              <Text
+              <EditorialText
                 style={[
                   styles.tabText,
                   activeTab === tab && styles.activeTabText,
                 ]}
               >
                 {tab}
-              </Text>
+              </EditorialText>
             </Pressable>
           ))}
         </View>
 
-        {activeTab === "Overview" && renderOverview()}
         {activeTab === "Medals" && renderMedals()}
         {activeTab === "Certificate" && renderCertificate()}
 
-        <Pressable onPress={logout} style={styles.logoutButton}>
-          <FontAwesomeIcon icon={faRightFromBracket} size={15} color="#e7ddd0" />
-          <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
+        <View style={[styles.accountSection, { marginHorizontal: horizontalPadding }]}>
+          <View style={[styles.profileRow, isCompact && styles.compactProfileRow]}>
+            <View style={[styles.avatarWrap, { height: avatarSize, width: avatarSize }]}>
+              <Image source={{ uri: imageUrl || defaultProfileImage }} style={[styles.avatar,
+                { borderRadius: avatarSize / 2, height: avatarSize, width: avatarSize }]} />
+              <Pressable accessibilityRole="button" accessibilityLabel="Update profile picture"
+                onPress={() => setImageModalVisible(true)} style={styles.cameraButton}>
+                {imageLoading ? <ActivityIndicator size="small" color={C.gold} />
+                  : <FontAwesomeIcon icon={faCamera} size={15} color={C.gold} />}
+              </Pressable>
+            </View>
+            <View style={[styles.profileCopy, isCompact && styles.compactProfileCopy]}>
+              <EditorialText style={styles.welcome}>Your account</EditorialText>
+              <EditorialText style={styles.userName}>{currentUser?.displayName || "Reader"}</EditorialText>
+              <EditorialText style={styles.userEmail}>{currentUser?.email || "BARD member"}</EditorialText>
+            </View>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={logout} style={styles.logoutButton}>
+            <FontAwesomeIcon icon={faRightFromBracket} size={15} color={C.muted} />
+            <EditorialText style={styles.logoutText}>Log out</EditorialText>
+          </Pressable>
+        </View>
       </ScrollView>
 
       <Modal
@@ -315,12 +301,14 @@ const HomeScreen = ({ navigation, route }) => {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalPanel}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Update profile picture</Text>
+              <EditorialText serif style={styles.modalTitle}>Update profile picture</EditorialText>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close profile picture options"
                 onPress={() => setImageModalVisible(false)}
                 style={styles.modalClose}
               >
-                <FontAwesomeIcon icon={faXmark} size={16} color="#f4efe7" />
+                <FontAwesomeIcon icon={faXmark} size={16} color={C.text} />
               </Pressable>
             </View>
             <ModalAction
@@ -340,336 +328,93 @@ const HomeScreen = ({ navigation, route }) => {
   );
 };
 
-const Metric = ({ value, label }) => (
-  <View style={styles.metric}>
-    <Text style={styles.metricValue}>{value}</Text>
-    <Text style={styles.metricLabel}>{label}</Text>
-  </View>
-);
-
-const DashboardAction = ({ icon, label, onPress }) => (
+const DashboardAction = ({ icon, label, detail, onPress }) => (
   <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={label}
     onPress={onPress}
     style={({ pressed }) => [
       styles.dashboardAction,
       pressed && styles.pressed,
     ]}
   >
-    <View style={styles.actionIcon}>
-      <FontAwesomeIcon icon={icon} size={16} color="#d8bd73" />
+    <FontAwesomeIcon icon={icon} size={17} color={C.gold} />
+    <View style={styles.actionCopy}>
+      <EditorialText style={styles.dashboardActionText}>{label}</EditorialText>
+      <EditorialText style={styles.actionDetail}>{detail}</EditorialText>
     </View>
-    <Text style={styles.dashboardActionText}>{label}</Text>
-    <FontAwesomeIcon icon={faChevronRight} size={13} color="#8c8378" />
+    <FontAwesomeIcon icon={faChevronRight} size={13} color={C.muted} />
   </Pressable>
 );
 
 const ModalAction = ({ icon, label, onPress }) => (
-  <Pressable onPress={onPress} style={styles.modalAction}>
-    <FontAwesomeIcon icon={icon} size={16} color="#d8bd73" />
-    <Text style={styles.modalActionText}>{label}</Text>
+  <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.modalAction}>
+    <FontAwesomeIcon icon={icon} size={16} color={C.gold} />
+    <EditorialText style={styles.modalActionText}>{label}</EditorialText>
   </Pressable>
 );
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  scroll: {
-    flex: 1,
-  },
-  content: {
-    backgroundColor: "#050505",
-  },
-  hero: {
-    backgroundColor: "#101010",
-    borderBottomColor: "#292722",
-    borderBottomWidth: 1,
-    padding: 18,
-  },
-  profileRow: {
-    alignItems: "center",
-    flexDirection: "row",
-  },
-  avatarWrap: {
-    flexShrink: 0,
-  },
-  avatar: {
-    backgroundColor: "#242424",
-    borderColor: "#d8bd73",
-    borderWidth: 2,
-  },
-  cameraButton: {
-    alignItems: "center",
-    backgroundColor: "#d8bd73",
-    borderRadius: 16,
-    bottom: 0,
-    height: 32,
-    justifyContent: "center",
-    position: "absolute",
-    right: 0,
-    width: 32,
-  },
-  profileCopy: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  welcome: {
-    color: "#d8bd73",
-    fontSize: 12,
-    fontWeight: "800",
-    marginBottom: 7,
-    textTransform: "uppercase",
-  },
-  userName: {
-    color: "#fff8ef",
-    fontSize: 27,
-    fontWeight: "800",
-  },
-  compactUserName: {
-    fontSize: 23,
-  },
-  userEmail: {
-    color: "#b9b0a4",
-    fontSize: 13,
-    marginTop: 5,
-  },
-  metricsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 18,
-  },
-  metric: {
-    backgroundColor: "#171717",
-    borderColor: "#2c2924",
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    minHeight: 72,
-    padding: 12,
-  },
-  metricValue: {
-    color: "#fff8ef",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  metricLabel: {
-    color: "#a9a096",
-    fontSize: 12,
-    marginTop: 3,
-  },
-  tabRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingTop: 18,
-  },
-  tabButton: {
-    alignItems: "center",
-    backgroundColor: "#121212",
-    borderColor: "#292722",
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    minHeight: 48,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    justifyContent: "center",
-  },
-  activeTabButton: {
-    backgroundColor: "#d8bd73",
-    borderColor: "#d8bd73",
-  },
-  tabText: {
-    color: "#aaa196",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  activeTabText: {
-    color: "#130f0b",
-  },
-  section: {
-    paddingTop: 16,
-  },
-  coursePanel: {
-    backgroundColor: "#131313",
-    borderColor: "#2d2a25",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 16,
-  },
-  panelHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  panelEyebrow: {
-    color: "#d8bd73",
-    fontSize: 12,
-    fontWeight: "800",
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  panelTitle: {
-    color: "#fff8ef",
-    fontSize: 22,
-    fontWeight: "800",
-    maxWidth: 260,
-  },
-  levelBadge: {
-    alignItems: "center",
-    backgroundColor: "#211c12",
-    borderRadius: 8,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  levelBadgeText: {
-    color: "#d8bd73",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  progressTrack: {
-    backgroundColor: "#24211d",
-    borderRadius: 999,
-    height: 10,
-    marginTop: 16,
-    overflow: "hidden",
-  },
-  progressFill: {
-    backgroundColor: "#d8bd73",
-    height: "100%",
-  },
-  progressText: {
-    color: "#bdb4a9",
-    fontSize: 13,
-    marginTop: 10,
-  },
-  actionGrid: {
-    gap: 10,
-    marginTop: 12,
-  },
-  dashboardAction: {
-    alignItems: "center",
-    backgroundColor: "#121212",
-    borderColor: "#292722",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    minHeight: 58,
-    paddingHorizontal: 14,
-  },
-  actionIcon: {
-    alignItems: "center",
-    backgroundColor: "#211c12",
-    borderRadius: 8,
-    height: 34,
-    justifyContent: "center",
-    marginRight: 12,
-    width: 34,
-  },
-  dashboardActionText: {
-    color: "#f4efe7",
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  pressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.99 }],
-  },
-  certificatePanel: {
-    alignItems: "center",
-    backgroundColor: "#131313",
-    borderColor: "#2d2a25",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 18,
-  },
-  certificateIcon: {
-    alignItems: "center",
-    backgroundColor: "#211c12",
-    borderRadius: 8,
-    height: 58,
-    justifyContent: "center",
-    width: 58,
-  },
-  certificateTitle: {
-    color: "#fff8ef",
-    fontSize: 24,
-    fontWeight: "800",
-    marginTop: 14,
-    textAlign: "center",
-  },
-  certificateText: {
-    color: "#bdb4a9",
-    fontSize: 14,
-    lineHeight: 21,
-    marginTop: 10,
-    textAlign: "center",
-  },
-  logoutButton: {
-    alignItems: "center",
-    alignSelf: "center",
-    borderColor: "#4b1d1d",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    height: 44,
-    justifyContent: "center",
-    marginTop: 22,
-    paddingHorizontal: 18,
-  },
-  logoutText: {
-    color: "#e7ddd0",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  modalBackdrop: {
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.72)",
-    flex: 1,
-    justifyContent: "center",
-    padding: 22,
-  },
-  modalPanel: {
-    backgroundColor: "#121212",
-    borderColor: "rgba(216, 189, 115, 0.22)",
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 18,
-    width: "100%",
-  },
-  modalHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  modalTitle: {
-    color: "#fff8ef",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  modalClose: {
-    alignItems: "center",
-    height: 34,
-    justifyContent: "center",
-    width: 34,
-  },
-  modalAction: {
-    alignItems: "center",
-    borderTopColor: "#2d2a25",
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 54,
-  },
-  modalActionText: {
-    color: "#f4efe7",
-    fontSize: 15,
-    fontWeight: "700",
-  },
+  screen: { flex: 1, backgroundColor: C.background },
+  scroll: { flex: 1 },
+  content: { backgroundColor: C.background },
+  section: { paddingTop: S.section },
+  eyebrow: { color: C.gold, fontSize: 12, lineHeight: 18, letterSpacing: 1.5, textTransform: "uppercase" },
+  pageTitle: { color: C.text, fontSize: 36, lineHeight: 44, marginTop: 8, marginBottom: 24 },
+  compactPageTitle: { fontSize: 30, lineHeight: 39 },
+  coursePanel: { gap: 0 },
+  courseArtwork: { width: "100%", height: 240, backgroundColor: C.soft, marginBottom: 22 },
+  panelEyebrow: { color: C.gold, fontSize: 12, lineHeight: 19, letterSpacing: 1, textTransform: "uppercase", marginBottom: 7 },
+  panelTitle: { color: C.text, fontSize: 30, lineHeight: 39 },
+  supportingCopy: { color: C.muted, fontSize: 16, lineHeight: 25, marginTop: 10 },
+  progressText: { color: C.muted, fontSize: 15, lineHeight: 23, marginTop: 18 },
+  progressTrack: { alignSelf: "stretch", backgroundColor: C.soft, height: 4, marginTop: 12, overflow: "hidden" },
+  progressFill: { backgroundColor: C.gold, height: "100%" },
+  continueButton: { alignItems: "center", justifyContent: "space-between", flexDirection: "row", gap: 16,
+    backgroundColor: C.gold, borderRadius: 4, minHeight: 54, paddingVertical: 14, paddingHorizontal: 20, marginTop: 24 },
+  continueText: { flex: 1, color: C.onGold, fontSize: 17, lineHeight: 25, fontWeight: "700" },
+  discovery: { marginTop: S.section, borderTopWidth: 1, borderTopColor: C.border },
+  dashboardAction: { alignItems: "center", borderBottomColor: C.border, borderBottomWidth: 1, flexDirection: "row",
+    gap: 16, minHeight: 76, paddingVertical: 18 },
+  actionCopy: { flex: 1, minWidth: 0, gap: 3 },
+  dashboardActionText: { color: C.text, fontSize: 18, lineHeight: 26 },
+  actionDetail: { color: C.muted, fontSize: 14, lineHeight: 22 },
+  pressed: { opacity: 0.75 },
+  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: S.section },
+  tabButton: { alignItems: "center", justifyContent: "center", borderBottomColor: "transparent", borderBottomWidth: 2,
+    minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, flexGrow: 1 },
+  activeTabButton: { borderBottomColor: C.gold },
+  tabText: { color: C.muted, fontSize: 14, lineHeight: 22 },
+  activeTabText: { color: C.gold, fontWeight: "700" },
+  certificatePanel: { alignItems: "center", backgroundColor: C.surface, borderColor: C.border, borderWidth: 1,
+    padding: 22, gap: 12 },
+  certificateIcon: { alignItems: "center", justifyContent: "center", padding: 12 },
+  certificateTitle: { color: C.text, fontSize: 28, lineHeight: 37, textAlign: "center" },
+  certificateText: { color: C.muted, fontSize: 16, lineHeight: 26, textAlign: "center" },
+  accountSection: { marginTop: S.section, paddingTop: 24, borderTopColor: C.border, borderTopWidth: 1 },
+  profileRow: { alignItems: "center", flexDirection: "row", gap: 20 },
+  compactProfileRow: { alignItems: "flex-start", flexDirection: "column", gap: 18 },
+  avatarWrap: { flexShrink: 0 },
+  avatar: { backgroundColor: C.soft, borderColor: C.border, borderWidth: 1 },
+  cameraButton: { alignItems: "center", backgroundColor: C.surface, borderColor: C.border, borderWidth: 1,
+    borderRadius: 24, bottom: -4, minHeight: 48, justifyContent: "center", position: "absolute", right: -10, width: 48 },
+  profileCopy: { flex: 1, minWidth: 0, gap: 3 },
+  compactProfileCopy: { flex: 0, alignSelf: "stretch" },
+  welcome: { color: C.muted, fontSize: 12, lineHeight: 18, letterSpacing: 1, textTransform: "uppercase" },
+  userName: { color: C.text, fontSize: 18, lineHeight: 26 },
+  userEmail: { color: C.muted, fontSize: 14, lineHeight: 22 },
+  logoutButton: { alignItems: "center", alignSelf: "flex-start", flexDirection: "row", gap: 10,
+    minHeight: 48, paddingVertical: 12, paddingRight: 18, marginTop: 14 },
+  logoutText: { color: C.muted, fontSize: 15, lineHeight: 23 },
+  modalBackdrop: { alignItems: "center", backgroundColor: "rgba(41, 39, 32, 0.48)", flex: 1,
+    justifyContent: "center", padding: 24 },
+  modalPanel: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, padding: 20, width: "100%", maxWidth: 520 },
+  modalHeader: { alignItems: "center", flexDirection: "row", gap: 8, marginBottom: 12 },
+  modalTitle: { flex: 1, color: C.text, fontSize: 24, lineHeight: 32 },
+  modalClose: { alignItems: "center", minHeight: 48, justifyContent: "center", width: 48 },
+  modalAction: { alignItems: "center", borderTopColor: C.border, borderTopWidth: 1, flexDirection: "row", gap: 12,
+    minHeight: 54, paddingVertical: 14 },
+  modalActionText: { flex: 1, color: C.text, fontSize: 16, lineHeight: 24 },
 });
 
 export default HomeScreen;

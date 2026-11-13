@@ -22,8 +22,8 @@ function synopsisUIHost(options = {}) {
   const route = { params: { id: entries[0].slug } };
   let state = { requestedId: entries[0].slug, isLoading: false, synopsis: getSynopsisContent(entries[0]) };
   let fontsLoaded = options.fontsLoaded !== false, currentFrame, effects;
-  const calls = [], actions = [], scrolls = [], frames = new Map(), cache = new Map();
-  const navigation = { navigate: (...args) => calls.push(args) };
+  const calls = [], actions = [], scrolls = [], cleanups = [], frames = new Map(), cache = new Map();
+  const navigation = { navigate: (...args) => calls.push(args), ...options.navigation };
   const same = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   function invoke(type, props) {
     const identity = type.name + ':' + (props.key || '');
@@ -53,15 +53,19 @@ function synopsisUIHost(options = {}) {
       if (!same(storage[index]?.deps, deps)) storage[index] = { deps, value: fn() };
       return storage[index].value;
     },
+    useCallback(fn, deps) { return React.useMemo(() => fn, deps); },
     useEffect(fn, deps) {
       const index = currentFrame.cursor++, storage = currentFrame.slots;
-      if (!same(storage[index], deps)) effects.push(() => { storage[index] = deps; fn(); });
+      if (!same(storage[index], deps)) effects.push(() => { storage[index] = deps; const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup); });
     },
   };
   const native = Object.fromEntries(['View', 'Text', 'Pressable', 'ScrollView', 'StatusBar', 'ActivityIndicator', 'TextInput', 'Image'].map(name => [name, name]));
-  native.StyleSheet = { create: value => value };
-  native.Platform = { OS: 'android', select: value => value.android || value.default };
+  native.StyleSheet = { create: value => value, hairlineWidth: 1, flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)) };
+  native.Platform = { OS: options.platform || 'android', select: value => value[options.platform || 'android'] || value.default };
   native.Keyboard = { dismiss: () => calls.push(['keyboard-dismiss']) };
+  native.Linking = options.linking || { openURL: async () => {} };
+  native.BackHandler = options.backHandler || { addEventListener: () => ({ remove() {} }) };
+  native.Clipboard = options.clipboard;
   function load(file) {
     if (cache.has(file)) return cache.get(file);
     if (file.endsWith('.json')) return JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
@@ -69,27 +73,31 @@ function synopsisUIHost(options = {}) {
     const code = babel.transformFileSync(path.join(root, file), { babelrc: false, configFile: false,
       plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
     const module = { exports: {} };
-    vm.runInThisContext('(function(require,module,exports,React){' + code + '\n})', { filename: file })(name => {
+    vm.runInThisContext('(function(require,module,exports,React,setTimeout,clearTimeout){' + code + '\n})', { filename: file })(name => {
       if (name === 'react') return React;
       if (name === 'react-native') return native;
       if (name === 'expo-font') return { useFonts: () => [fontsLoaded, null] };
+      if (name === 'expo-constants') return { __esModule: true, default: options.constants || {} };
       if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView' };
       if (name === 'react-native-gesture-handler') return { ScrollView: 'ScrollView' };
-      if (name === '@react-navigation/native') return { useRoute: () => route, useNavigation: () => navigation };
+      if (name === '@react-navigation/native') return { useRoute: () => route, useNavigation: () => navigation,
+        useFocusEffect: callback => React.useEffect(callback, [callback]) };
+      if (name === '@react-navigation/drawer') return { getDrawerStatusFromState: () => typeof options.drawerStatus === 'function' ? options.drawerStatus() : options.drawerStatus || 'closed' };
       if (name === 'react-redux') return { useDispatch: () => action => actions.push(action), useSelector: select => select({ folger: state }) };
       if (name.endsWith('/folgerSlice')) return { fetchFolger: id => ({ type: 'local-synopsis', id }) };
       if (name.endsWith('/localPlayService')) return { PLAYS: plays, getLocalPlayEntry: id => entries.find(e => e.slug === id || e.legacyId === id) };
       if (name.endsWith('/synopsisContent')) return require('../../shared/synopsisContent');
       if (name.startsWith('.')) return load(path.posix.normalize(path.posix.join(path.posix.dirname(file), name + (path.extname(name) ? '' : '.js'))));
       throw Error('Unexpected dependency ' + name);
-    }, module, module.exports, React);
+    }, module, module.exports, React, options.setTimeout || setTimeout, options.clearTimeout || clearTimeout);
     cache.set(file, module.exports); return module.exports;
   }
   const file = options.screen || 'screens/JustSynopsis.js';
   const h = { calls, actions, scrolls, entries, plays, route,
-    render() { effects = []; const tree = invoke(load(file).default, {}); effects.forEach(run => run()); return tree; },
+    render() { effects = []; const tree = invoke(load(file)[options.exportName || 'default'], options.props || {}); effects.forEach(run => run()); return tree; },
     button(label) { return nodes(h.render(), 'Pressable').find(n => n.props.accessibilityLabel === label || text(n) === label); },
     state(next) { state = next; }, fonts(loaded) { fontsLoaded = loaded; },
+    unmount() { cleanups.splice(0).reverse().forEach(cleanup => cleanup()); },
   };
   return h;
 }

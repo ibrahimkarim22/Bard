@@ -4,6 +4,8 @@ import { store, persistor } from "./redux/store";
 import Stacks from "./Componenets/Navigation";
 import { PersistGate } from "redux-persist/integration/react";
 import { NavigationContainer } from "@react-navigation/native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { EDITORIAL_COLORS } from "./shared/editorialTheme";
 
 import { StatusBar } from "react-native";
 // import { Text } from "react-native-elements";
@@ -17,10 +19,12 @@ const App = () => {
       {/* <PersistGate loading={<Text>Loading...</Text>} persistor={persistor}> */}
       <PersistGate loading={null} persistor={persistor}>
         <CourseProgressBridge>
+        <SafeAreaProvider>
         <NavigationContainer>
-          <StatusBar backgroundColor="black" barStyle="light-content" />
+          <StatusBar backgroundColor={EDITORIAL_COLORS.background} barStyle="dark-content" />
           <Stacks />
         </NavigationContainer>
+        </SafeAreaProvider>
         </CourseProgressBridge>
       </PersistGate>
     </Provider>

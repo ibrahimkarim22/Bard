@@ -1,5 +1,7 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { EditorialText as Text } from "../shared/EditorialUI";
+import { EDITORIAL_COLORS as C, EDITORIAL_SPACING as S } from "../shared/editorialTheme";
 import MedalArtwork from "./MedalArtwork";
 import LockedMedal from "./LockedMedal";
 import { getMedalCollection } from "./medalCollection";
@@ -11,7 +13,7 @@ export default function MedalsCollection({ plays, completedLevel, onOpenLesson }
   const singleColumn = width < 360 || fontScale > 1.2;
   const artworkSize = singleColumn ? 140 : Math.max(80, Math.min(140, Math.floor((width - 48) / 2) - 32));
   return <View style={styles.collection}>
-    <Text allowFontScaling accessibilityRole="header" style={styles.heading}>Your medal collection</Text>
+    <Text serif allowFontScaling accessibilityRole="header" style={styles.heading}>Your medal collection</Text>
     <Text allowFontScaling style={styles.count}>{`${collection.earnedCount} of ${collection.total} medals earned`}</Text>
     <View style={styles.grid}>
       {collection.items.map(({ play, earned }) => <Pressable key={play.id}
@@ -32,18 +34,18 @@ export default function MedalsCollection({ plays, completedLevel, onOpenLesson }
 }
 
 const styles = StyleSheet.create({
-  collection: { paddingHorizontal: 18, paddingTop: 24, gap: 10 },
-  heading: { color: "#f3ecdf", fontSize: 23, lineHeight: 31, fontWeight: "600", letterSpacing: 0.2 },
-  count: { color: "#b5ac9d", fontSize: 16, lineHeight: 24 },
+  collection: { paddingHorizontal: S.horizontal, paddingTop: 24, gap: 10 },
+  heading: { color: C.text, fontSize: 27, lineHeight: 36, fontWeight: "400" },
+  count: { color: C.muted, fontSize: 16, lineHeight: 24 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingTop: 10 },
-  card: { minHeight: 48, alignItems: "center", borderRadius: 18, borderWidth: 1,
+  card: { minHeight: 48, alignItems: "center", borderRadius: 7, borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14, paddingTop: 20, paddingBottom: 16, gap: 14 },
-  earnedCard: { backgroundColor: "#16181b", borderColor: "#766347" },
-  lockedCard: { backgroundColor: "#111316", borderColor: "#383329", filter: "blur(10px)" },
-  name: { alignSelf: "stretch", color: "#f3ecdf", fontSize: 16, lineHeight: 24, fontWeight: "500", textAlign: "center" },
-  genre: { color: "#b5ac9d", fontSize: 13, lineHeight: 20, textAlign: "center" },
-  stateBadge: { borderWidth: 1, borderColor: "#383329", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 3 },
-  earnedBadge: { backgroundColor: "#25231e", borderColor: "#5c503d" },
-  state: { color: "#b5ac9d", fontSize: 13, lineHeight: 21, textAlign: "center", letterSpacing: 1, textTransform: "uppercase" },
-  earnedState: { color: "#cbb58d" },
+  earnedCard: { backgroundColor: C.surface, borderColor: C.border },
+  lockedCard: { backgroundColor: C.soft, borderColor: C.border, filter: "blur(10px)" },
+  name: { alignSelf: "stretch", color: C.text, fontSize: 16, lineHeight: 24, fontWeight: "500", textAlign: "center" },
+  genre: { color: C.muted, fontSize: 13, lineHeight: 20, textAlign: "center" },
+  stateBadge: { paddingHorizontal: 12, paddingVertical: 3 },
+  earnedBadge: { backgroundColor: "transparent" },
+  state: { color: C.muted, fontSize: 13, lineHeight: 21, textAlign: "center", letterSpacing: 1, textTransform: "uppercase" },
+  earnedState: { color: C.gold },
 });

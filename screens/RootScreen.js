@@ -1,278 +1,94 @@
-import {
-  ImageBackground,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import {
-  faArrowRight,
-  faAward,
-  faBookOpen,
-  faCertificate,
-  faCrown,
-  faRightToBracket,
-  faUserPlus,
-} from "@fortawesome/free-solid-svg-icons";
-import FolgerMidsummer from "../assets/images/FolgerMidsummer.jpg";
-import { PLAYS } from "../shared/localPlayService";
+﻿import React from 'react';
+import { Platform, Pressable, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { EditorialText } from '../shared/EditorialUI';
+import { EDITORIAL_SPACING as S } from '../shared/editorialTheme';
+import WelcomeTitle from './WelcomeTitle';
+import WelcomeBackground from './WelcomeBackground';
+import WelcomeMoon from './WelcomeMoon';
+import WelcomeActionPulse from './WelcomeActionPulse';
 
-const features = [
-  {
-    icon: faBookOpen,
-    value: `${PLAYS.length}`,
-    label: "complete plays",
-  },
-  {
-    icon: faCrown,
-    value: `${PLAYS.length}`,
-    label: "guided quizzes",
-  },
-  {
-    icon: faAward,
-    value: `${PLAYS.length}`,
-    label: "earned medals",
-  },
-  {
-    icon: faCertificate,
-    value: "1",
-    label: "final certificate",
-  },
-];
+const colors = { background: '#0e0c20', text: '#f3eadb', muted: '#d3c7b8',
+  primary: '#c6a663', primaryText: '#241c15', accent: '#d8c58e', secondary: '#26152f' };
 
-const ActionButton = ({ icon, label, onPress, variant = "primary" }) => (
-  <Pressable
-    onPress={onPress}
-    style={({ pressed }) => [
-      styles.actionButton,
-      variant === "secondary" && styles.secondaryButton,
-      pressed && styles.actionButtonPressed,
-    ]}
-  >
-    <View style={styles.actionLeft}>
-      <FontAwesomeIcon
-        icon={icon}
-        size={17}
-        color={variant === "secondary" ? "#f4efe7" : "#130f0b"}
-      />
-      <Text
-        style={[
-          styles.actionText,
-          variant === "secondary" && styles.secondaryActionText,
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-    <FontAwesomeIcon
-      icon={faArrowRight}
-      size={15}
-      color={variant === "secondary" ? "#c9b06a" : "#130f0b"}
-    />
-  </Pressable>
-);
+const supportsGradients = Platform.OS === 'web' || !!globalThis.nativeFabricUIManager;
+const gradientProperty = Platform.OS === 'web' ? 'backgroundImage' : 'experimental_backgroundImage';
+
+function WelcomeAction({ title, onPress, secondary = false }) {
+  const button = <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress}
+    style={({ pressed }) => [styles.button, secondary ? styles.secondaryButton : styles.primaryButton, pressed && styles.pressed]}>
+    <EditorialText serif style={[styles.buttonLabel, !secondary && styles.primaryButtonLabel]}>{title}</EditorialText>
+  </Pressable>;
+  return secondary ? button : <WelcomeActionPulse>{button}</WelcomeActionPulse>;
+}
 
 export const RootScreen = ({ navigation }) => {
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#050505" />
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <ImageBackground source={FolgerMidsummer} style={styles.hero}>
-          <View style={styles.heroShade} />
-          <View style={styles.topBar}>
-            <View>
-              <Text style={styles.brand}>BARD</Text>
-              <Text style={styles.brandMeta}>Shakespeare, rebuilt for mobile</Text>
-            </View>
-          </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.kicker}>The complete Shakespeare companion</Text>
-            <Text style={styles.headline}>
-              Read, learn, and master every play.
-            </Text>
-            <Text style={styles.subhead}>
-              A focused course experience with local texts, progress, medals,
-              and a certificate path.
-            </Text>
-          </View>
-        </ImageBackground>
+  const focused = useIsFocused();
+  const pendingRoute = useRef(null);
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (!focused) { pendingRoute.current = null; setClosing(false); }
+  }, [focused]);
+  const openAccount = route => {
+    if (pendingRoute.current) return;
+    pendingRoute.current = route;
+    setClosing(true);
+  };
+  const revealAccount = useCallback(() => {
+    const route = pendingRoute.current;
+    if (!route) return;
+    pendingRoute.current = null;
+    navigation.navigate(route);
+  }, [navigation]);
 
-        <View style={styles.body}>
-          <View style={styles.statsGrid}>
-            {features.map((feature) => (
-              <View key={feature.label} style={styles.statItem}>
-                <View style={styles.statIcon}>
-                  <FontAwesomeIcon icon={feature.icon} size={15} color="#d8bd73" />
-                </View>
-                <Text style={styles.statValue}>{feature.value}</Text>
-                <Text style={styles.statLabel}>{feature.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.ctaGroup}>
-            <ActionButton
-              icon={faUserPlus}
-              label="Create account"
-              onPress={() => navigation.navigate("SignUp")}
-            />
-            <ActionButton
-              icon={faRightToBracket}
-              label="Log in"
-              variant="secondary"
-              onPress={() => navigation.navigate("Login")}
-            />
-          </View>
-
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+  return <SafeAreaView style={styles.page} edges={['top', 'left', 'right', 'bottom']}>
+  <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+  <WelcomeMoon />
+  <ScrollView style={styles.stageColumn} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <View style={styles.brand}>
+      <View style={styles.titleSpace}><WelcomeTitle style={styles.wordmark} /></View>
+      <View style={styles.accentRule} />
+      <EditorialText serif style={styles.tagline}>Shakespeare’s complete plays, with quizzes.</EditorialText>
+    </View>
+    <View style={styles.body}>
+      <EditorialText style={styles.introduction}>Read full plays or explore their synopses. Highlight and save your favorite passages, test your knowledge, and earn medals with perfect quiz scores.</EditorialText>
+      <View style={styles.actions}>
+        <WelcomeAction title="Create account" onPress={() => openAccount('SignUp')} />
+        <WelcomeAction title="Log in" secondary onPress={() => openAccount('Login')} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Contact & Feedback"
+          onPress={() => navigation.navigate('Main', { screen: 'Contact', params: { fromPublicRoot: true } })}
+          style={({ pressed }) => [styles.contact, pressed && styles.pressed]}>
+          <EditorialText style={styles.contactLabel}>Contact & Feedback</EditorialText>
+        </Pressable>
+      </View>
+    </View>
+  </ScrollView>
+  <WelcomeBackground closing={closing} onClosed={revealAccount} reopenOnFocus />
+</SafeAreaView>;
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  container: {
-    flex: 1,
-    backgroundColor: "#050505",
-  },
-  content: {
-    flexGrow: 1,
-    backgroundColor: "#050505",
-  },
-  hero: {
-    minHeight: 470,
-    justifyContent: "space-between",
-    overflow: "hidden",
-  },
-  heroShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(3, 4, 4, 0.58)",
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 22,
-    paddingTop: 18,
-  },
-  brand: {
-    color: "#f7f0e5",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  brandMeta: {
-    color: "#d8d0c4",
-    fontSize: 12,
-    marginTop: 3,
-  },
-  heroCopy: {
-    paddingBottom: 38,
-    paddingHorizontal: 22,
-  },
-  kicker: {
-    color: "#d8bd73",
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 12,
-    textTransform: "uppercase",
-  },
-  headline: {
-    color: "#fff8ef",
-    fontSize: 44,
-    fontWeight: "800",
-    lineHeight: 48,
-    maxWidth: 350,
-  },
-  subhead: {
-    color: "#e4ddd1",
-    fontSize: 16,
-    lineHeight: 23,
-    marginTop: 16,
-    maxWidth: 340,
-  },
-  body: {
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 28,
-  },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  statItem: {
-    backgroundColor: "#131313",
-    borderColor: "#292826",
-    borderRadius: 8,
-    borderWidth: 1,
-    minHeight: 104,
-    padding: 13,
-    width: "48.5%",
-  },
-  statIcon: {
-    alignItems: "center",
-    backgroundColor: "#211c12",
-    borderRadius: 8,
-    height: 30,
-    justifyContent: "center",
-    marginBottom: 12,
-    width: 30,
-  },
-  statValue: {
-    color: "#fff8ef",
-    fontSize: 25,
-    fontWeight: "800",
-  },
-  statLabel: {
-    color: "#bcb4a8",
-    fontSize: 13,
-    marginTop: 3,
-  },
-  ctaGroup: {
-    gap: 12,
-    marginTop: 18,
-  },
-  actionButton: {
-    alignItems: "center",
-    backgroundColor: "#d8bd73",
-    borderRadius: 8,
-    flexDirection: "row",
-    height: 56,
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-  },
-  secondaryButton: {
-    backgroundColor: "#141414",
-    borderColor: "#34302a",
-    borderWidth: 1,
-  },
-  actionButtonPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.99 }],
-  },
-  actionLeft: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  actionText: {
-    color: "#130f0b",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  secondaryActionText: {
-    color: "#f4efe7",
-  },
+  page: { flex: 1, backgroundColor: colors.background },
+  stageColumn: { flex: 1, width: '56%', alignSelf: 'center' },
+  content: { flexGrow: 1, width: '100%', maxWidth: S.maxWidth, alignSelf: 'center', justifyContent: 'center', paddingTop: 56, paddingBottom: 32, gap: 28 },
+  brand: { width: '100%', alignItems: 'center', gap: 14 },
+  titleSpace: { width: '100%', paddingTop: 12, paddingBottom: 8 },
+  wordmark: { color: colors.text, fontSize: 48, lineHeight: 64, letterSpacing: 5 },
+  accentRule: { width: 42, height: 2, backgroundColor: colors.accent, opacity: 0.8 },
+  tagline: { color: colors.text, fontSize: 20, lineHeight: 28, textAlign: 'center', alignSelf: 'stretch', flexShrink: 1 },
+  body: { width: '100%', gap: 24 },
+  introduction: { color: colors.muted, textAlign: 'center', fontSize: 16, lineHeight: 24, alignSelf: 'stretch', flexShrink: 1 },
+  actions: { gap: 12 },
+  button: { width: '100%', minHeight: 52, paddingHorizontal: 12, paddingVertical: 14, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  primaryButton: { backgroundColor: colors.primary,
+    ...(supportsGradients && { [gradientProperty]: 'linear-gradient(150deg, #d5b978 0%, #c6a663 55%, #af8a4b 100%)' }) },
+  secondaryButton: { backgroundColor: colors.secondary,
+    ...(supportsGradients && { [gradientProperty]: 'linear-gradient(150deg, #38203f 0%, #26152f 100%)' }) },
+  buttonLabel: { color: colors.text, fontSize: 16, lineHeight: 24, fontWeight: '600', textAlign: 'center', flexShrink: 1 },
+  primaryButtonLabel: { color: colors.primaryText },
+  contact: { width: '100%', minHeight: 48, paddingVertical: 12, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' },
+  contactLabel: { color: colors.accent, fontSize: 15, lineHeight: 22, textAlign: 'center', flexShrink: 1 },
+  pressed: { opacity: 0.78 },
 });
