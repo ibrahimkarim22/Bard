@@ -12,8 +12,9 @@ const text = tree => typeof tree === 'string' || typeof tree === 'number' ? Stri
 
 function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width: 411, fontScale: 1 } } = {}) {
   const route = { key: 'home-fixture', params: { tab } }, calls = [], writes = [], scrolls = [], slots = [];
-  let cursor = 0, effects = [], dirty = false;
-  let progress = initialProgress || { status: 'ready', completedLevel: level };
+  const auth = { currentUser: { uid: 'synthetic-owner', displayName: 'Synthetic reader', photoURL: 'https://example.test/reader-avatar.png' } };
+  let cursor = 0, effects = [], dirty = false, drawerStatus = 'closed';
+  let progress = { owner: { uid: auth.currentUser.uid, generation: 0 }, ...(initialProgress || { status: 'ready', completedLevel: level }) };
   const equal = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const memo = (factory, deps) => { const i = cursor++; if (!slots[i] || !equal(slots[i].deps, deps)) slots[i] = { deps, value: factory() }; return slots[i].value; };
   const React = {
@@ -26,19 +27,21 @@ function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width
   const plays = catalogue || [{ id: 'midsummer', name: 'Midsummer', difficulty: 1, mainImage: 21, medalImage: 11 }, { id: 'henry-viii', name: 'Henry VIII', difficulty: 39, mainImage: 22, medalImage: 12 }];
   const native = Object.fromEntries(['View', 'Text', 'Pressable', 'ScrollView', 'Image', 'Modal', 'StatusBar', 'ActivityIndicator'].map(s => [s, s]));
   native.ScrollView = props => { if (props.ref) props.ref.current = { scrollTo: options => scrolls.push(options) }; return { type: 'ScrollView', props }; };
-  Object.assign(native, { useWindowDimensions: () => dimensions, StyleSheet: { create: value => value } });
+  Object.assign(native, { useWindowDimensions: () => dimensions, Platform: { OS: 'android' }, StyleSheet: { create: value => value } });
   const deps = {
     react: React, 'react-native': native,
+    '@react-navigation/native': { useIsFocused: () => true },
+    '@react-navigation/drawer': { useDrawerStatus: () => drawerStatus },
     '@fortawesome/react-native-fontawesome': { FontAwesomeIcon: 'Icon' }, '@fortawesome/free-solid-svg-icons': {},
     'firebase/auth': { updateProfile: () => writes.push('profile') }, 'firebase/firestore': { doc() {}, updateDoc: () => writes.push('document') },
     '../course/AccountCourseProgress': { useAccountCourseProgress: () => progress, retryAccountProgress() {} },
     '../course/CourseProgressNotice': { CourseProgressNotice: 'CourseProgressNotice' },
     '../course/MedalsCollection': { __esModule: true, default: 'MedalsCollection' },
     'expo-image-manipulator': {}, 'expo-image-picker': {}, 'expo-media-library': {},
-    '../firebaseConfig': { FIREBASE_AUTH: { currentUser: { displayName: 'Synthetic reader' } }, FIRESTORE_DB: {} },
+    '../firebaseConfig': { FIREBASE_AUTH: auth, FIRESTORE_DB: {} },
     '../shared/localPlayService': { PLAYS: plays },
     '../shared/EditorialUI': { EditorialText: props => ({ type: 'Text', props }) },
-    'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ bottom: 0 }) },
+    'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 24, bottom: 0, left: 0, right: 0 }) },
   };
   const file = path.join(root, 'screens/HomeScreen.js');
   const code = babel.transformFileSync(file, { babelrc: false, configFile: false,
@@ -48,12 +51,16 @@ function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width
     if (Object.hasOwn(deps, name)) return deps[name];
     return name.startsWith('.') ? require(path.resolve(path.dirname(file), name)) : require(name);
   }, module, module.exports, React);
-  const navigation = { navigate: (...args) => calls.push(args), setParams: next => { route.params = { ...route.params, ...next }; dirty = true; } };
+  const navigation = { navigate: (...args) => calls.push(args), openDrawer: () => calls.push(['openDrawer']),
+    setParams: next => { route.params = { ...route.params, ...next }; dirty = true; } };
   const h = {
     calls, writes, scrolls, route, plays,
     render() { let tree, passes = 0; do { assert.ok(++passes < 20); cursor = 0; effects = []; dirty = false; tree = module.exports.default({ navigation, route }); effects.forEach(run => run()); } while (dirty); return tree; },
+    renderBeforeEffects() { cursor = 0; effects = []; dirty = false; return module.exports.default({ navigation, route }); },
     selectTab(label) { const button = nodes(h.render(), 'Pressable').find(n => text(n) === label); assert.ok(button, label); button.props.onPress(); return h.render(); },
-    setProgress(next) { progress = next; },
+    setProgress(next) { progress = { owner: { uid: auth.currentUser?.uid || null, generation: 0 }, ...next }; },
+    setUser(next) { auth.currentUser = next; },
+    setDrawerStatus(next) { drawerStatus = next; },
   };
   return h;
 }
@@ -79,18 +86,72 @@ const editorialPlays = [
 const buttonNamed = (tree, label) => nodes(tree, 'Pressable').find(node => node.props.accessibilityLabel === label || text(node) === label);
 const flatStyle = style => Object.assign({}, ...[typeof style === 'function' ? style({ pressed: false }) : style].flat(Infinity).filter(Boolean));
 
-test('Home leads with the confirmed next play and one Continue action before account details', () => {
+test('Home keeps the profile above the confirmed next play and retains one Continue action', () => {
   const h = host({ catalogue: editorialPlays, level: 1 });
   const tree = h.render(), copy = text(tree);
   assert.match(copy, /Continue your course/);
   assert.match(copy, /Romeo and Juliet/);
   assert.match(copy, /1 of 3 plays completed/);
-  assert.ok(copy.indexOf('Continue your course') < copy.indexOf('Synthetic reader'), 'course content has priority over the profile');
+  assert.ok(copy.indexOf('Synthetic reader') < copy.indexOf('Continue your course'), 'the profile appears at the top');
   assert.ok(nodes(tree, 'Image').some(node => node.props.source === 22), 'the next play uses its original catalogue artwork');
   const continuation = nodes(tree, 'Pressable').filter(node => text(node).trim() === 'Continue');
   assert.equal(continuation.length, 1);
   continuation[0].props.onPress();
   assert.deepEqual(h.calls, [['Course']]);
+  assert.deepEqual(h.writes, []);
+});
+
+test('Home profile and all three tabs stay above the scrolling content', () => {
+  for (const dimensions of [{ width: 411, fontScale: 1 }, { width: 320, fontScale: 1.5 }]) {
+    const h = host({ catalogue: editorialPlays, dimensions });
+    const tree = h.render(), scroll = nodes(tree, 'ScrollView')[0];
+    assert.ok(scroll);
+    assert.match(text(tree), /Synthetic reader/);
+    assert.doesNotMatch(text(scroll), /Synthetic reader/);
+    assert.ok(nodes(tree, 'Image').some(node => node.props.source?.uri === 'https://example.test/reader-avatar.png'));
+    assert.ok(!nodes(scroll, 'Image').some(node => node.props.source?.uri === 'https://example.test/reader-avatar.png'));
+    assert.deepEqual(nodes(tree, 'Pressable').filter(node => node.props.accessibilityRole === 'tab')
+      .map(node => node.props.accessibilityLabel), ['Overview', 'Medals', 'Certificate']);
+    assert.equal(nodes(scroll, 'Pressable').filter(node => node.props.accessibilityRole === 'tab').length, 0);
+    assert.ok(buttonNamed(tree, 'Update profile picture'));
+    assert.equal(buttonNamed(scroll, 'Update profile picture'), undefined);
+    const menu = buttonNamed(tree, 'Open navigation menu');
+    assert.ok(menu);
+    menu.props.onPress();
+    assert.deepEqual(h.calls, [['openDrawer']]);
+    assert.ok(tree.props.edges.includes('top'), 'Home owns the inset when its native header is hidden');
+    assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
+    assert.deepEqual(h.writes, []);
+  }
+});
+
+test('Home keeps dark status icons on its shared ivory surface with the drawer open or closed', () => {
+  const h = host({ catalogue: editorialPlays });
+  const lightBackground = require('../../shared/editorialTheme').EDITORIAL_COLORS.background;
+  let tree = h.render();
+  const homeBackground = flatStyle(tree.props.style).backgroundColor;
+  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
+  assert.equal(homeBackground, lightBackground);
+
+  h.setDrawerStatus('open');
+  tree = h.render();
+  const status = nodes(tree, 'StatusBar')[0];
+  assert.equal(status.props.barStyle, 'dark-content');
+  assert.equal(status.props.backgroundColor, lightBackground);
+  assert.equal(flatStyle(tree.props.style).backgroundColor, lightBackground);
+  const scroll = nodes(tree, 'ScrollView')[0];
+  assert.equal(flatStyle(scroll.props.style).backgroundColor, homeBackground);
+  assert.match(text(tree), /Synthetic reader/);
+  assert.doesNotMatch(text(scroll), /Synthetic reader/);
+  assert.equal(nodes(tree, 'Pressable').filter(node => node.props.accessibilityRole === 'tab').length, 3);
+  assert.equal(nodes(scroll, 'Pressable').filter(node => node.props.accessibilityRole === 'tab').length, 0);
+
+  h.setDrawerStatus('closed');
+  tree = h.render();
+  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
+  assert.equal(nodes(tree, 'StatusBar')[0].props.backgroundColor, homeBackground);
+  assert.equal(flatStyle(tree.props.style).backgroundColor, homeBackground);
+  assert.deepEqual(h.calls, []);
   assert.deepEqual(h.writes, []);
 });
 
@@ -159,6 +220,7 @@ test('Home collection receives raw confirmed level 39 and earned actions use the
   assert.ok(collection);
   assert.equal(collection.props.completedLevel, 39);
   assert.equal(collection.props.plays.length, 2);
+  assert.ok(collection.props.colors?.background, 'the existing collection receives the Home palette');
   collection.props.onOpenLesson(h.plays[1]);
   assert.deepEqual(h.calls, [['Lesson', { id: 'henry-viii' }]]);
   h.setProgress({ status: 'loading', completedLevel: 0 });
@@ -176,6 +238,12 @@ test('Home never renders medals from a non-ready account snapshot even when it c
     assert.equal(notice.props.status, status);
     assert.deepEqual(h.calls, []);
     assert.deepEqual(h.writes, []);
+    const menu = buttonNamed(tree, 'Open navigation menu');
+    assert.ok(menu, `${status} keeps navigation available without exposing account content`);
+    assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'dark-content');
+    menu.props.onPress();
+    assert.deepEqual(h.calls, [['openDrawer']]);
+    assert.doesNotMatch(text(tree), /Synthetic reader/);
   }
 });
 
@@ -191,5 +259,54 @@ test('switching accounts hides the old earned collection until the new account i
   assert.equal(nodes(tree, 'MedalsCollection').length, 1);
   assert.equal(nodes(tree, 'MedalsCollection')[0].props.completedLevel, 0, 'only the newly confirmed account level reaches the collection');
   assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.writes, []);
+});
+
+test('a new account never renders the previous profile image in its first ready frame', () => {
+  const h = host({ catalogue: editorialPlays });
+  const first = h.render();
+  assert.ok(nodes(first, 'Image').some(node => node.props.source?.uri === 'https://example.test/reader-avatar.png'));
+  h.setUser({ uid: 'second-owner', displayName: 'Second reader', photoURL: 'https://example.test/second-avatar.png' });
+  h.setProgress({ status: 'loading', completedLevel: 39 });
+  const loading = h.render();
+  assert.doesNotMatch(text(loading), /Synthetic reader/);
+  assert.ok(!nodes(loading, 'Image').some(node => node.props.source?.uri === 'https://example.test/reader-avatar.png'));
+  h.setProgress({ status: 'ready', completedLevel: 0 });
+  const ready = h.renderBeforeEffects();
+  assert.match(text(ready), /Second reader/);
+  assert.doesNotMatch(text(ready), /Synthetic reader/);
+  assert.ok(nodes(ready, 'Image').some(node => node.props.source?.uri === 'https://example.test/second-avatar.png'));
+  assert.ok(!nodes(ready, 'Image').some(node => node.props.source?.uri === 'https://example.test/reader-avatar.png'));
+  assert.deepEqual(h.writes, []);
+});
+
+test('a failed profile picture shows initials while new image URIs and accounts still render their pictures', () => {
+  const h = host({ catalogue: editorialPlays });
+  const avatarFor = (tree, uri) => nodes(tree, 'Image').find(node => node.props.source?.uri === uri);
+  const firstUri = 'https://example.test/reader-avatar.png';
+  const nextUri = 'https://example.test/replacement-avatar.png';
+  const original = avatarFor(h.render(), firstUri);
+  assert.ok(original, 'an available profile picture is rendered normally');
+  assert.equal(typeof original.props.onError, 'function');
+  original.props.onError();
+  let tree = h.render();
+  assert.equal(avatarFor(tree, firstUri), undefined);
+  assert.match(text(tree), /\bSR\b/, 'the failed image has a readable initials fallback');
+
+  h.setUser({ uid: 'synthetic-owner', displayName: 'Synthetic reader', photoURL: nextUri });
+  tree = h.renderBeforeEffects();
+  assert.ok(avatarFor(tree, nextUri), 'a new URI is not hidden by the old URI failure');
+  original.props.onError();
+  const replacement = avatarFor(h.render(), nextUri);
+  assert.ok(replacement, 'a late failure for the old URI cannot hide the new picture');
+  replacement.props.onError();
+  assert.match(text(h.render()), /\bSR\b/);
+
+  h.setUser({ uid: 'other-owner', displayName: 'Other reader', photoURL: nextUri });
+  h.setProgress({ status: 'ready', completedLevel: 0 });
+  tree = h.renderBeforeEffects();
+  assert.ok(avatarFor(tree, nextUri), 'another account can use the same URI without inheriting the failure');
+  replacement.props.onError();
+  assert.ok(avatarFor(h.render(), nextUri), 'retired image errors cannot replace another account picture');
   assert.deepEqual(h.writes, []);
 });

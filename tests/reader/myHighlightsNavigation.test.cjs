@@ -107,6 +107,16 @@ test('visible navigators own the top inset without a padded outer safe area or p
   }
 });
 
+test('Home owns its profile header and top inset while Course keeps its native header', () => {
+  const h = navigator();
+  const home = nodes(h.main, 'DrawerScreen').find(screen => screen.props.name === 'Home');
+  const course = nodes(h.main, 'DrawerScreen').find(screen => screen.props.name === 'Course');
+  assert.equal(home.props.options.headerShown, false);
+  assert.notEqual(course.props.options?.headerShown, false);
+  assert.notEqual(nodes(h.main, 'Drawer')[0].props.screenOptions.headerShown, false,
+    'the Home override does not hide headers on other drawer screens');
+});
+
 test('one shared header geometry reserves scaled two-line titles without adding a second top inset', () => {
   for (const [fontScale, want] of [[1, 88], [1.5, 114]]) {
     const h = navigator({ fontScale, top: 24 });

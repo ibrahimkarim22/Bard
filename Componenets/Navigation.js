@@ -215,7 +215,7 @@ const Main = () => {
           name="Home"
           component={HomeScreen}
           options={{
-            headerShown: true,
+            headerShown: false,
             drawerLabelStyle: { color: "white" },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
