@@ -10,9 +10,11 @@ import {
   View,
 } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useIsFocused } from "@react-navigation/native";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faAward,
+  faBars,
   faBookOpen,
   faBookmark,
   faCamera,
@@ -33,7 +35,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { FIREBASE_AUTH, FIRESTORE_DB } from "../firebaseConfig";
 import { PLAYS } from "../shared/localPlayService";
-import { EDITORIAL_COLORS as C, EDITORIAL_SPACING as S } from "../shared/editorialTheme";
+import { EDITORIAL_COLORS, EDITORIAL_SPACING as S } from "../shared/editorialTheme";
 import { EditorialText } from "../shared/EditorialUI";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -41,19 +43,34 @@ const defaultProfileImage =
   "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPqyKSgl0SqQ6kxcklpXJgijs3B_E212kVuvKxG-OeGQ&s";
 
 const tabs = ["Overview", "Medals", "Certificate"];
+const C = Object.freeze({
+  ...EDITORIAL_COLORS,
+  red: '#6f2638', onRed: '#fff8ed', button: '#c6a663', onButton: '#241c15',
+});
 
 const HomeScreen = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState(() => route?.params?.tab === "Medals" ? "Medals" : "Overview");
-  const [imageUrl, setImageUrl] = useState("");
+  const [profileImage, setProfileImage] = useState(null);
+  const [failedPicture, setFailedPicture] = useState(null);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const scrollRef = useRef(null);
   const { width, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const focused = useIsFocused();
 
   const accountProgress = useAccountCourseProgress();
   const completedLevel = accountProgress.completedLevel;
   const currentUser = FIREBASE_AUTH.currentUser;
+  const profileOwner = accountProgress.owner || currentUser;
+  const liveProfileOwner = useRef(profileOwner);
+  liveProfileOwner.current = profileOwner;
+  const imageUrl = profileImage?.owner === profileOwner ? profileImage.uri
+    : currentUser?.photoURL || defaultProfileImage;
+  const pictureUnavailable = failedPicture?.owner === profileOwner && failedPicture?.uri === imageUrl;
+  const displayName = currentUser?.displayName?.trim() || 'Reader';
+  const initials = displayName.split(/\s+/).slice(0, 2)
+    .map(part => Array.from(part)[0]).join('').toUpperCase();
 
   const plays = useMemo(
     () => PLAYS.slice().sort((a, b) => a.difficulty - b.difficulty),
@@ -71,7 +88,7 @@ const HomeScreen = ({ navigation, route }) => {
     : plays.find((play) => play.difficulty === confirmedLevel + 1);
   const isCompact = width < 360 || fontScale > 1.2;
   const horizontalPadding = S.horizontal;
-  const avatarSize = 64;
+  const avatarSize = isCompact ? 56 : 64;
   const selectTab = (tab) => {
     setActiveTab(tab);
     scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -85,11 +102,15 @@ const HomeScreen = ({ navigation, route }) => {
   }, [route?.key, route?.params?.tab, navigation]);
 
   useEffect(() => {
-    const user = FIREBASE_AUTH.currentUser;
-    setImageUrl(user?.photoURL || defaultProfileImage);
-  }, []);
+    setImageModalVisible(false);
+    setImageLoading(false);
+  }, [profileOwner]);
 
   const processImage = async (imgUri) => {
+    const user = currentUser;
+    const owner = profileOwner;
+    const isCurrent = () => FIREBASE_AUTH.currentUser === user && liveProfileOwner.current === owner;
+    if (!user) return;
     try {
       setImageLoading(true);
       const processedImage = await ImageManipulator.manipulateAsync(
@@ -98,18 +119,20 @@ const HomeScreen = ({ navigation, route }) => {
         { format: "png" }
       );
 
-      setImageUrl(processedImage.uri);
+      if (!isCurrent()) return;
+      setProfileImage({ owner, uri: processedImage.uri });
       await MediaLibrary.saveToLibraryAsync(processedImage.uri);
 
-      if (FIREBASE_AUTH.currentUser) {
-        await updateProfile(FIREBASE_AUTH.currentUser, {
+      if (isCurrent()) {
+        await updateProfile(user, {
           photoURL: processedImage.uri,
         });
+        if (!isCurrent()) return;
 
         const userRef = doc(
           FIRESTORE_DB,
           "users",
-          FIREBASE_AUTH.currentUser.uid
+          user.uid
         );
         await updateDoc(userRef, {
           profileImage: processedImage.uri,
@@ -118,36 +141,40 @@ const HomeScreen = ({ navigation, route }) => {
     } catch (error) {
       console.error("Error processing or saving image:", error);
     } finally {
-      setImageLoading(false);
-      setImageModalVisible(false);
+      if (isCurrent()) {
+        setImageLoading(false);
+        setImageModalVisible(false);
+      }
     }
   };
 
   const getImageFromCamera = async () => {
+    const owner = profileOwner;
     const cameraPermission = await ImagePicker.requestCameraPermissionsAsync();
-    if (cameraPermission.status !== "granted") return;
+    if (cameraPermission.status !== "granted" || liveProfileOwner.current !== owner) return;
 
     const capturedImage = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
     });
 
-    if (capturedImage.assets?.[0]?.uri) {
+    if (liveProfileOwner.current === owner && capturedImage.assets?.[0]?.uri) {
       await processImage(capturedImage.assets[0].uri);
     }
   };
 
   const getImageFromGallery = async () => {
+    const owner = profileOwner;
     const mediaLibraryPermissions =
       await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (mediaLibraryPermissions.status !== "granted") return;
+    if (mediaLibraryPermissions.status !== "granted" || liveProfileOwner.current !== owner) return;
 
     const capturedImage = await ImagePicker.launchImageLibraryAsync({
       allowsEditing: true,
       aspect: [1, 1],
     });
 
-    if (capturedImage.assets?.[0]?.uri) {
+    if (liveProfileOwner.current === owner && capturedImage.assets?.[0]?.uri) {
       await processImage(capturedImage.assets[0].uri);
     }
   };
@@ -160,13 +187,13 @@ const HomeScreen = ({ navigation, route }) => {
 
   const renderOverview = () => (
     <View style={[styles.section, { paddingHorizontal: horizontalPadding }]}>
-      <EditorialText style={styles.eyebrow}>Your Shakespeare course</EditorialText>
       <EditorialText serif accessibilityRole="header" style={[styles.pageTitle, isCompact && styles.compactPageTitle]}>
         Continue your course
       </EditorialText>
       <View style={styles.coursePanel}>
         {nextPlay?.mainImage && <Image source={nextPlay.mainImage} resizeMode="cover"
           accessibilityLabel={`${nextPlay.name} artwork`} style={styles.courseArtwork} />}
+        <View style={styles.courseCopy}>
         <EditorialText style={styles.panelEyebrow}>
           {courseComplete ? "Course complete" : nextPlay ? `Play ${nextPlay.difficulty} · ${nextPlay.genre || "Shakespeare"}` : "Your course"}
         </EditorialText>
@@ -183,8 +210,9 @@ const HomeScreen = ({ navigation, route }) => {
           onPress={() => navigation.navigate("Course")}
           style={({ pressed }) => [styles.continueButton, pressed && styles.pressed]}>
           <EditorialText style={styles.continueText}>{courseComplete ? "Revisit course" : nextPlay ? "Continue" : "View course"}</EditorialText>
-          <FontAwesomeIcon icon={faChevronRight} size={14} color={C.onGold} />
+          <FontAwesomeIcon icon={faChevronRight} size={14} color={C.onButton} />
         </Pressable>
+        </View>
       </View>
 
       <View style={styles.discovery}>
@@ -202,7 +230,7 @@ const HomeScreen = ({ navigation, route }) => {
     </View>
   );
 
-  const renderMedals = () => <MedalsCollection plays={plays} completedLevel={completedLevel}
+  const renderMedals = () => <MedalsCollection plays={plays} completedLevel={completedLevel} colors={C}
     onOpenLesson={play => navigation.navigate("Lesson", { id: play.id })} />;
 
   const renderCertificate = () => (
@@ -225,10 +253,54 @@ const HomeScreen = ({ navigation, route }) => {
     </View>
   );
 
-  if (accountProgress.status !== "ready") return <CourseProgressNotice status={accountProgress.status} onRetry={retryAccountProgress} />;
+  if (accountProgress.status !== "ready") return <SafeAreaView edges={["top"]} style={styles.loadingScreen}>
+    {focused && <StatusBar barStyle="dark-content" backgroundColor={C.background} />}
+    <View style={[styles.fixedHeader, styles.noticeHeader]}>
+      <EditorialText serif accessibilityRole="header" style={styles.userName}>Home</EditorialText>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
+        onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
+        <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
+      </Pressable>
+    </View>
+    <CourseProgressNotice status={accountProgress.status} onRetry={retryAccountProgress} />
+  </SafeAreaView>;
   return (
-    <SafeAreaView edges={["bottom"]} style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.background} />
+    <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.screen}>
+      {focused && <StatusBar barStyle="dark-content" backgroundColor={C.background} />}
+      <View testID="home-fixed-header" style={styles.fixedHeader}>
+        <View style={styles.profileRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Update profile picture"
+            onPress={() => setImageModalVisible(true)}
+            style={[styles.avatarWrap, { minHeight: avatarSize, minWidth: avatarSize }]}>
+            {pictureUnavailable ? <View style={[styles.avatar, styles.avatarFallback,
+              { borderRadius: avatarSize / 2, height: avatarSize, width: avatarSize }]}>
+              <EditorialText accessible={false} style={styles.avatarInitials}>{initials}</EditorialText>
+            </View> : <Image key={currentUser?.uid} source={{ uri: imageUrl }} accessible={false}
+              onError={() => setFailedPicture({ owner: profileOwner, uri: imageUrl })}
+              style={[styles.avatar, { borderRadius: avatarSize / 2, height: avatarSize, width: avatarSize }]} />}
+            <View pointerEvents="none" style={styles.cameraBadge}>
+              {imageLoading ? <ActivityIndicator size="small" color={C.onRed} />
+                : <FontAwesomeIcon icon={faCamera} size={10} color={C.onRed} />}
+            </View>
+          </Pressable>
+          <View style={styles.profileCopy}>
+            <EditorialText serif accessibilityRole="header" style={[styles.userName, isCompact && styles.compactUserName]}>
+              {displayName}
+            </EditorialText>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
+            onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
+            <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
+          </Pressable>
+        </View>
+        <View accessibilityRole="tablist" accessibilityLabel="Home sections" style={styles.tabRow}>
+          {tabs.map(tab => <Pressable key={tab} accessibilityRole="tab" accessibilityLabel={tab}
+            accessibilityState={{ selected: activeTab === tab }} onPress={() => selectTab(tab)}
+            style={[styles.tabButton, activeTab === tab && styles.activeTabButton]}>
+            <EditorialText style={[styles.tabText, activeTab === tab && styles.activeTabText]}>{tab}</EditorialText>
+          </Pressable>)}
+        </View>
+      </View>
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -240,51 +312,11 @@ const HomeScreen = ({ navigation, route }) => {
       >
         {activeTab === "Overview" && renderOverview()}
 
-        <View style={[styles.tabRow, { paddingHorizontal: horizontalPadding }]}>
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab}
-              accessibilityRole="tab"
-              accessibilityLabel={tab}
-              accessibilityState={{ selected: activeTab === tab }}
-              onPress={() => selectTab(tab)}
-              style={[
-                styles.tabButton,
-                activeTab === tab && styles.activeTabButton,
-              ]}
-            >
-              <EditorialText
-                style={[
-                  styles.tabText,
-                  activeTab === tab && styles.activeTabText,
-                ]}
-              >
-                {tab}
-              </EditorialText>
-            </Pressable>
-          ))}
-        </View>
-
         {activeTab === "Medals" && renderMedals()}
         {activeTab === "Certificate" && renderCertificate()}
 
         <View style={[styles.accountSection, { marginHorizontal: horizontalPadding }]}>
-          <View style={[styles.profileRow, isCompact && styles.compactProfileRow]}>
-            <View style={[styles.avatarWrap, { height: avatarSize, width: avatarSize }]}>
-              <Image source={{ uri: imageUrl || defaultProfileImage }} style={[styles.avatar,
-                { borderRadius: avatarSize / 2, height: avatarSize, width: avatarSize }]} />
-              <Pressable accessibilityRole="button" accessibilityLabel="Update profile picture"
-                onPress={() => setImageModalVisible(true)} style={styles.cameraButton}>
-                {imageLoading ? <ActivityIndicator size="small" color={C.gold} />
-                  : <FontAwesomeIcon icon={faCamera} size={15} color={C.gold} />}
-              </Pressable>
-            </View>
-            <View style={[styles.profileCopy, isCompact && styles.compactProfileCopy]}>
-              <EditorialText style={styles.welcome}>Your account</EditorialText>
-              <EditorialText style={styles.userName}>{currentUser?.displayName || "Reader"}</EditorialText>
-              <EditorialText style={styles.userEmail}>{currentUser?.email || "BARD member"}</EditorialText>
-            </View>
-          </View>
+          <EditorialText style={styles.userEmail}>{currentUser?.email || "BARD member"}</EditorialText>
           <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={logout} style={styles.logoutButton}>
             <FontAwesomeIcon icon={faRightFromBracket} size={15} color={C.muted} />
             <EditorialText style={styles.logoutText}>Log out</EditorialText>
@@ -356,59 +388,66 @@ const ModalAction = ({ icon, label, onPress }) => (
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.background },
-  scroll: { flex: 1 },
+  loadingScreen: { flex: 1, backgroundColor: EDITORIAL_COLORS.background },
+  fixedHeader: { paddingHorizontal: S.horizontal, paddingTop: 12, paddingBottom: 8,
+    backgroundColor: C.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border },
+  noticeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scroll: { flex: 1, backgroundColor: C.background },
   content: { backgroundColor: C.background },
-  section: { paddingTop: S.section },
-  eyebrow: { color: C.gold, fontSize: 12, lineHeight: 18, letterSpacing: 1.5, textTransform: "uppercase" },
-  pageTitle: { color: C.text, fontSize: 36, lineHeight: 44, marginTop: 8, marginBottom: 24 },
-  compactPageTitle: { fontSize: 30, lineHeight: 39 },
-  coursePanel: { gap: 0 },
-  courseArtwork: { width: "100%", height: 240, backgroundColor: C.soft, marginBottom: 22 },
+  section: { paddingTop: 24, width: '100%', maxWidth: S.maxWidth, alignSelf: 'center' },
+  pageTitle: { color: C.text, fontSize: 26, lineHeight: 35, marginBottom: 18 },
+  compactPageTitle: { fontSize: 24, lineHeight: 33 },
+  coursePanel: { backgroundColor: C.surface, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border, borderRadius: 12, overflow: 'hidden' },
+  courseArtwork: { width: "100%", height: 200, backgroundColor: C.soft },
+  courseCopy: { padding: 18 },
   panelEyebrow: { color: C.gold, fontSize: 12, lineHeight: 19, letterSpacing: 1, textTransform: "uppercase", marginBottom: 7 },
-  panelTitle: { color: C.text, fontSize: 30, lineHeight: 39 },
+  panelTitle: { color: C.text, fontSize: 25, lineHeight: 34 },
   supportingCopy: { color: C.muted, fontSize: 16, lineHeight: 25, marginTop: 10 },
   progressText: { color: C.muted, fontSize: 15, lineHeight: 23, marginTop: 18 },
   progressTrack: { alignSelf: "stretch", backgroundColor: C.soft, height: 4, marginTop: 12, overflow: "hidden" },
   progressFill: { backgroundColor: C.gold, height: "100%" },
   continueButton: { alignItems: "center", justifyContent: "space-between", flexDirection: "row", gap: 16,
-    backgroundColor: C.gold, borderRadius: 4, minHeight: 54, paddingVertical: 14, paddingHorizontal: 20, marginTop: 24 },
-  continueText: { flex: 1, color: C.onGold, fontSize: 17, lineHeight: 25, fontWeight: "700" },
-  discovery: { marginTop: S.section, borderTopWidth: 1, borderTopColor: C.border },
+    backgroundColor: C.button, borderRadius: 4, minHeight: 54, paddingVertical: 14, paddingHorizontal: 20, marginTop: 24 },
+  continueText: { flex: 1, color: C.onButton, fontSize: 17, lineHeight: 25, fontWeight: "700" },
+  discovery: { marginTop: 24, backgroundColor: C.surface, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: C.border, borderRadius: 12, paddingHorizontal: 16 },
   dashboardAction: { alignItems: "center", borderBottomColor: C.border, borderBottomWidth: 1, flexDirection: "row",
-    gap: 16, minHeight: 76, paddingVertical: 18 },
+    gap: 14, minHeight: 72, paddingVertical: 16 },
   actionCopy: { flex: 1, minWidth: 0, gap: 3 },
-  dashboardActionText: { color: C.text, fontSize: 18, lineHeight: 26 },
+  dashboardActionText: { color: C.text, fontSize: 17, lineHeight: 25 },
   actionDetail: { color: C.muted, fontSize: 14, lineHeight: 22 },
   pressed: { opacity: 0.75 },
-  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingTop: S.section },
+  tabRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 18 },
   tabButton: { alignItems: "center", justifyContent: "center", borderBottomColor: "transparent", borderBottomWidth: 2,
-    minHeight: 48, paddingVertical: 10, paddingHorizontal: 12, flexGrow: 1 },
-  activeTabButton: { borderBottomColor: C.gold },
-  tabText: { color: C.muted, fontSize: 14, lineHeight: 22 },
-  activeTabText: { color: C.gold, fontWeight: "700" },
+    minHeight: 48, paddingVertical: 10, paddingHorizontal: 6, flexBasis: 80, flexGrow: 1 },
+  activeTabButton: { backgroundColor: C.red, borderBottomColor: C.button, borderRadius: 5 },
+  tabText: { color: C.muted, fontSize: 14, lineHeight: 22, textAlign: 'center', flexShrink: 1 },
+  activeTabText: { color: C.onRed, fontWeight: "700" },
   certificatePanel: { alignItems: "center", backgroundColor: C.surface, borderColor: C.border, borderWidth: 1,
-    padding: 22, gap: 12 },
+    padding: 22, gap: 12, borderRadius: 12 },
   certificateIcon: { alignItems: "center", justifyContent: "center", padding: 12 },
   certificateTitle: { color: C.text, fontSize: 28, lineHeight: 37, textAlign: "center" },
   certificateText: { color: C.muted, fontSize: 16, lineHeight: 26, textAlign: "center" },
   accountSection: { marginTop: S.section, paddingTop: 24, borderTopColor: C.border, borderTopWidth: 1 },
-  profileRow: { alignItems: "center", flexDirection: "row", gap: 20 },
-  compactProfileRow: { alignItems: "flex-start", flexDirection: "column", gap: 18 },
+  profileRow: { alignItems: "center", flexDirection: "row", gap: 14 },
   avatarWrap: { flexShrink: 0 },
-  avatar: { backgroundColor: C.soft, borderColor: C.border, borderWidth: 1 },
-  cameraButton: { alignItems: "center", backgroundColor: C.surface, borderColor: C.border, borderWidth: 1,
-    borderRadius: 24, bottom: -4, minHeight: 48, justifyContent: "center", position: "absolute", right: -10, width: 48 },
+  avatar: { backgroundColor: C.soft, borderColor: C.gold, borderWidth: 1 },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  avatarInitials: { color: C.gold, fontSize: 20, lineHeight: 28 },
+  cameraBadge: { alignItems: "center", backgroundColor: C.red, borderColor: C.border, borderWidth: 1,
+    borderRadius: 12, bottom: -2, height: 24, justifyContent: "center", position: "absolute", right: -2, width: 24 },
   profileCopy: { flex: 1, minWidth: 0, gap: 3 },
-  compactProfileCopy: { flex: 0, alignSelf: "stretch" },
-  welcome: { color: C.muted, fontSize: 12, lineHeight: 18, letterSpacing: 1, textTransform: "uppercase" },
-  userName: { color: C.text, fontSize: 18, lineHeight: 26 },
+  userName: { color: C.text, fontSize: 25, lineHeight: 33 },
+  compactUserName: { fontSize: 22, lineHeight: 30 },
+  menuButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', marginRight: -8 },
   userEmail: { color: C.muted, fontSize: 14, lineHeight: 22 },
   logoutButton: { alignItems: "center", alignSelf: "flex-start", flexDirection: "row", gap: 10,
     minHeight: 48, paddingVertical: 12, paddingRight: 18, marginTop: 14 },
   logoutText: { color: C.muted, fontSize: 15, lineHeight: 23 },
   modalBackdrop: { alignItems: "center", backgroundColor: "rgba(41, 39, 32, 0.48)", flex: 1,
     justifyContent: "center", padding: 24 },
-  modalPanel: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, padding: 20, width: "100%", maxWidth: 520 },
+  modalPanel: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 20, width: "100%", maxWidth: 520 },
   modalHeader: { alignItems: "center", flexDirection: "row", gap: 8, marginBottom: 12 },
   modalTitle: { flex: 1, color: C.text, fontSize: 24, lineHeight: 32 },
   modalClose: { alignItems: "center", minHeight: 48, justifyContent: "center", width: 48 },
