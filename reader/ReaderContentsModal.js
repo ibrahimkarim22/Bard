@@ -7,7 +7,7 @@ export default function ReaderContentsModal({
   visible,
   model,
   currentSectionId,
-  theme = THEMES.paper,
+  theme = THEMES.night,
   ready = false,
   onSelect,
   onClose,

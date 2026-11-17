@@ -116,6 +116,14 @@ function row(tree, id) {
 }
 function style(value) { return Object.assign({}, ...[typeof value === 'function' ? value({ pressed: false, focused: false }) : value].flat(Infinity).filter(Boolean)); }
 
+test('contents defaults to Night and preserves explicit Paper and Sepia palettes', () => {
+  const sheet = host();
+  for (const [theme, background] of [[undefined, '#1b1820'], [THEMES.paper, '#FFFCF5'], [THEMES.sepia, '#F6ECD9']]) {
+    const panel = nodes(sheet.render({ theme }), 'View').find(node => node.props.accessibilityViewIsModal);
+    assert.equal(style(panel.props.style).backgroundColor, background);
+  }
+});
+
 test('contents preserves source order, exposes current context and selects exact act or section IDs', () => {
   const sheet = host();
   const selected = [];

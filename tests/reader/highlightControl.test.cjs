@@ -59,6 +59,14 @@ function nodes(tree, type) {
 const button = tree => nodes(tree, 'Pressable')[0];
 const style = tree => Object.assign({}, ...[typeof button(tree).props.style === 'function' ? button(tree).props.style({ pressed: false }) : button(tree).props.style].flat(Infinity));
 
+test('top Highlight control defaults to readable Night colors', () => {
+  const h = host();
+  const tree = h.render();
+  assert.equal(nodes(tree, 'Text')[0].props.style[1].color, '#f3eadb');
+  assert.equal(Object.assign({}, ...button(tree).props.style({ pressed: true })).backgroundColor, '#2b2530');
+  h.unmount();
+});
+
 test('top Highlight control uses neutral management tokens in each theme without opacity fading', () => {
   const { THEMES } = require('../../reader/readerConstants');
   const h = host();

@@ -96,6 +96,18 @@ function host({ dev = true, global = {}, capture } = {}) {
   };
 }
 
+test('opt-in verifier defaults to Night and preserves explicit Paper and Sepia palettes', () => {
+  const { THEMES } = require('../../reader/readerConstants');
+  const screen = host();
+  screen.render();
+  screen.global.BardSelectionVerification.enable();
+  for (const [theme, background] of [[undefined, '#1b1820'], [THEMES.paper, '#FFFCF5'], [THEMES.sepia, '#F6ECD9']]) {
+    const panel = nodes(screen.render({ theme }), 'View')[0];
+    assert.equal(Object.assign({}, ...panel.props.style).backgroundColor, background);
+  }
+  screen.unmount();
+});
+
 test('production has no verifier UI, hooks, or global registration', () => {
   const screen = host({ dev: false });
   assert.equal(screen.render(), null);

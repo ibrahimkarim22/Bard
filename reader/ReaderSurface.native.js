@@ -30,7 +30,7 @@ const ReaderSurface = forwardRef(function ReaderSurface({
   const { fontScale } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const theme = THEMES[preferences.theme] || THEMES.paper;
+  const theme = THEMES[preferences.theme] || THEMES.night;
   // Appearance is deliberately absent: changing it must keep this WebView and
   // its reading position alive. Only a different reading document changes HTML.
   const source = useMemo(() => ({ html: document.html, baseUrl: "about:blank" }), [document.html]);

@@ -37,6 +37,7 @@ function host(name, state) {
     if(name==='react')return React;
     if(name==='react-native')return native;
     if(name==='expo-font')return{useFonts:()=>[true,null]};
+    if(name==='./PosterImage')return{__esModule:true,default:props=>({type:'Image',props})};
     if(name.endsWith('.ttf'))return name;
     return require(path.resolve(path.dirname(helperFile),name));
   },helper,helper.exports);
@@ -75,12 +76,12 @@ test('non-reader detail gives existing entries and sheets the editorial palette 
   const h=host('PlayHighlightsScreen',state),tree=h.render();
   const list=nodes(tree,'FlatList')[0];
   const theme=nodes(list.props.renderItem({item,index:0}),'HighlightEntry')[0].props.theme;
-  assert.equal(theme.background,'#f5f0e6');
-  assert.equal(theme.text,'#292720');
+  assert.equal(theme.background,'#121116');
+  assert.equal(theme.text,'#f3eadb');
   for(const component of ['ReaderHighlightsModal','ReaderHighlightPicker','HighlightOptionsModal'])assert.equal(nodes(tree,component)[0].props.theme,theme);
   const options=h.calls.find(call=>call[0]==='options')[1];
   assert.equal(options.headerStyle,undefined,'inherit shared scaled header geometry instead of replacing it with a color-only style');
-  assert.equal(options.headerTintColor,'#292720');
+  assert.equal(options.headerTintColor,'#f3eadb');
   const title=options.headerTitle({});
   assert.equal(title.props.accessibilityRole,'header');
   assert.equal(title.props.allowFontScaling,true);

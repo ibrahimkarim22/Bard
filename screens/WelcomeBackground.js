@@ -16,12 +16,16 @@ const gradientStyle = value => Platform.OS === 'web' ? { backgroundImage: value 
 // Fixed, low-amplitude grain dithers the dark blur gradients without another filter.
 const grain = { uri: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAH6UlEQVR4AW3BgY0cu44AwJLX2WjSoeKR0iHjGaXTZ4AfaCzeVY3nHywEFh4sFBKBQqBQSCwUUisUHiyt8GiFwECikF5De7C0QCG0hUcr1M/ee2KiMLWLLz7YmFi4KEwcBI7XRGmJiYPCxEVgYeODi4XAF0srFCaO9sXAxUb87L0TH1xMXAQ+SBwUChMXie1V+GobCxcHF19cLAQKhUBi4iIQWAhcTHy1i8LFRf3svS++2CgkJg4SgcLGRGrD66sdFC6+uPhiIJA4mLiYKGwsTFwtMTExcbHwYOLg/kFqS1teQ0ssbWipJQYKiUSgUNqDpSUCiURojxYILCy/JQYC4Z+/XuG1tPDbQmLgQWDhQWEgtYXEQCC00pbfHgQW0isw8GAhtEL+7L0nPtrFRuDg4npNHCQuDgpHmzi4SAQOLjYONg6+uJjYuDjaQmCjvDYKS6u/CCQKgYHAg4X0KgSW3x4Mr0CgkF6lhVchUEhtYCEQCG0gtED+RfktERgILK2QKC39FgiENhBegdCWligECoXQHgwUAoVHW0jUHwQKgdIKgfRKrRAILAQWSltYCC2QWmEh8KC0pQUKiYUHgcKD8iqsn7331a52sVEIBAoTgYmDi4uJjYPCF4XAQWoTW7va1BKBhYurLUxcTIRXYP/svS8mAhMHG6EVLiYODh4UNgqBicRCYmJjYWHi4GDioLBxUFqitInExcTFRaH88xcPFgID4bdCYqHwaKElBh6U19BSC789KBQKiUIhtMBCohBaoPzzs/c+uDhITExtoXCRuNrBRGmFg8DEx6uwMTFRCEwcBEK7mAh8cPDFwtU+mAh8/nolAoXhFUgMPBhILKSWWiG09Fp4UCiUFlhIhLYQeFBaaYkHAw/iZ+/tnwcXV0tMrXC0i4mDwEFgIRE42FhIXCQWLiYmNg4SgYWDQOHiorBR2Fi42Fh/kVqhEAgsPFhaYGmBQGIgsRAolFYorZAIFEoLFAKhFVIrFBKF0gbij1YIBAoLiaWVFngQ2sCDpS0tEVpoqQ2tkFphIVBehfBaeBAIxB+UtpAIJEJLLbSBpSUKifJbaqEtLbwWlpYoJAKF0BKB0AKF9bP/wdImLsLrYKIQKCQWEhMXiY2NDy42BgoPLjYOvpg4+OKDwMXGQWDgYGLiYCJxfvbehdQOLg42pra1wkUgUfigcBEYCBQ2JgIHGwNfLEytsLWF6xUIBC4mFi72z947tYutXWwUFi4OLh4cr0DgYGOj8MXCRGDhaBMXG4XExMTGwhcTBwcXFxsTE/Wz9y4kChMHj3YROHgwcbFxsHGwsbFQKFwEFg4eTCQOUgsUPjjYuFg4+GJiY2Hjo8VfrRAIBAZSW/5r+G1piUKgsJDaQmAhtYFEaKEVEoGF8io8GMifvfeDq31wEZgIXHxRWAjt4qLw1T7awUVgalM7OLi4CFytsLFxUEhsXExMXATuHwwsLAQCgUIhUFhaoPxW2oNA4PEKbfn/FUIbWAht+K+FQPzsvQNfTEwcBKYWONgoTJQ2MTG1g6sVAqF9ENhaIDFRmAgtMbGQ+ODrlVhYf5AYCBQebWFhIFFILbTyW6G0QKFQCJQWXsurkFgY2kJieC0E8g+G3wqFRGoDhYWF1BKJQODBg0IhECgEAqEtr0Ch/P8KgcJCYvnnrxZaaYGF1AKFRGBp4TWQCCQWConE8loIDC20wNIerbC8Asv//Oy9HwRKKyQOAoGLie23hYmLxEFgYiIxUdgIDCQOAhMTV0vtYuKDRCFxtYnz1yu8Cg8KCw8WCoXEwuO3RGFpgfRaXo+2vBKF0kIrhFZa+mc8z5NYeFAILC20QmIgtEL4rfD4r/JaSK9CoBBYWmIhEX4rLf6gkFpogUJgIbC0QmqF1BLpNbSBQmEhtMJCoBB+Cy1QWBhaIDB+9t5XCwwcJDZKu9pGolB4tEAhUDi4ONrGxRcLhS+OVtrGxURgaxOFr7awEH+0QCH8thBIFAIDC4lCeQ0ESgskAonCg9ACoQUGAoXSBhYSAwupxc/eO7VCIVBYeHC0wMHExMRC4eJiel1MHGztg4mNwsbExcbFwYOLi0RgIJBYmNg/e+/ExELi4CIxtYXAxsIXF4FEaFObSC1RmNg4KGwMbIRXagcHW7soHGwc7D/a0pb2YGGg8GD5r8DCQqEQXgsDpRUKicKDoS2UtlAIDK8HDwqJ9bP3njhIJA4OHmwEyqtwMXEQmNjaxEFhIzBxUdg42NrVJiYmFkLb+OCLgY2FwP6rBQJDS69CILC01AILgcJCIBAY/itR2tAKgUQhtUJphUDh0cbP3ts/iaE9+GDi4KIQCGwUPjjYXoGLg4MHFxMTFxepHTw4mFrgopAIXExMFEqLP0gUHgTKK1EILAwsBAKJwkKgEF4DidRCGxjaQiIRWChtaaWFllqM53n8EwgUQltaolAIBJb2oPxWWnoVAgOhpTa0B4VAYSFRCAQKgdLqLx4USgssJAJDS4QWSAztwcCjLQwECoHQwmtoqQUWEomFQKG0wNLyZ+99EDi42FgITFx8cfHBxMQHicJEYqCQXhcThasdTO0iMXD9ltrERWoTgfrZe/ufiwdDKxxMLG1i42Bi42LigwdHSwSulrgor8TWJiY2LkoLTCxcFA4K92fv7Z+rHTyY2heBg42L0goTR7uYWuEiEAgMbBQebWJg44PAB4WNQiEwsbEQuMj/A+HLpRcTtsGlAAAAAElFTkSuQmCC' };
 
-export default function WelcomeBackground({ closing = false, onClosed, reopenOnFocus = false, light = 'moon' } = {}) {
+export default function WelcomeBackground({ closing = false, onClosed, reopenOnFocus = false, light = 'moon', fullyOpen = false,
+  onOpened, initiallyOpen = false, holdClosedOnPause = false } = {}) {
   const state = useRef(null);
-  if (!state.current) state.current = { open: new Animated.Value(0), soft: new Animated.Value(0), opened: false, covered: false };
+  if (!state.current) state.current = { open: new Animated.Value(initiallyOpen ? 1 : 0), soft: new Animated.Value(0),
+    opened: initiallyOpen, covered: false };
   const curtain = state.current;
   const closedCallback = useRef(onClosed);
   closedCallback.current = onClosed;
+  const openedCallback = useRef(onOpened);
+  openedCallback.current = onOpened;
   const preference = useRef({ known: false, reduced: true });
   const { width } = useWindowDimensions();
   const focused = useIsFocused();
@@ -39,12 +43,22 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
       const retiring = entrance; entrance = null; retiring?.stop();
       loop?.stop(); loop = null;
       curtain.open.stopAnimation(); curtain.soft.stopAnimation(); curtain.soft.setValue(0);
-      if (settle) { curtain.open.setValue(1); curtain.opened = true; curtain.covered = false; }
+      if (settle) {
+        const held = closing && (fullyOpen || holdClosedOnPause);
+        curtain.open.setValue(held ? 0 : 1); curtain.opened = !held; curtain.covered = false;
+      }
     };
     const covered = () => {
       if (curtain.covered) return;
       curtain.covered = true;
+      curtain.opened = false;
+      curtain.revealed = false;
       closedCallback.current?.();
+    };
+    const revealed = () => {
+      if (curtain.revealed) return;
+      curtain.revealed = true;
+      openedCallback.current?.();
     };
     const reconcile = () => {
       if (!active || !focused || !foreground) { stop(true); return; }
@@ -66,7 +80,7 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
         return;
       }
       curtain.covered = false;
-      if (reduced) { stop(true); return; }
+      if (reduced) { stop(true); revealed(); return; }
       if (!curtain.opened) {
         if (entrance) return;
         const opening = Animated.timing(curtain.open, {
@@ -78,10 +92,12 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
           if (entrance !== opening) return;
           entrance = null;
           if (!finished || !active || !focused || !foreground || reduced) return;
-          curtain.opened = true; reconcile();
+          curtain.opened = true; revealed(); reconcile();
         });
         return;
       }
+      revealed();
+      if (fullyOpen) return;
       if (loop || !supportsBlur) return;
       const timing = (toValue, duration, delay = 0) => Animated.timing(curtain.soft, {
         // The native Animated driver cannot update filter in RN 0.79.
@@ -97,6 +113,7 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
       preference.current.known = false;
       if (reopenOnFocus) {
         curtain.open.setValue(0); curtain.opened = false; curtain.covered = false;
+        curtain.revealed = false;
       }
       return () => { active = false; };
     }
@@ -123,7 +140,7 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
     }
     reconcile();
     return () => { active = false; motion.remove(); app.remove(); stop(false); };
-  }, [focused, curtain, supportsBlur, closing, reopenOnFocus]);
+  }, [focused, curtain, supportsBlur, closing, reopenOnFocus, fullyOpen, holdClosedOnPause]);
 
   const Field = supportsBlur ? Animated.View : View;
 
@@ -137,7 +154,7 @@ export default function WelcomeBackground({ closing = false, onClosed, reopenOnF
           style={[styles.panel, supportsShadows && { boxShadow: [{
             offsetX: side === 'left' ? 8 : -8, offsetY: 8, blurRadius: 22, spreadDistance: 0, color: 'rgba(0,0,0,0.38)',
           }] }, { [side]: 0, transform: [{ translateX: curtain.open.interpolate({
-            inputRange: [0, 1], outputRange: [0, width * (side === 'left' ? -0.31 : 0.31)], extrapolate: 'clamp',
+            inputRange: [0, 1], outputRange: [0, (fullyOpen ? width / 2 + 48 : width * 0.31) * (side === 'left' ? -1 : 1)], extrapolate: 'clamp',
           }) }] }]}>
           <View style={[styles.fabric, side === 'right' && styles.mirror]}>
             {folds.map((fold, index) => <View key={index} testID="curtain-fold"

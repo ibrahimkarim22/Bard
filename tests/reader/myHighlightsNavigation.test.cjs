@@ -62,7 +62,8 @@ test('normal drawer retains every non-video destination and each item navigates 
     assert.equal(contact.props.options.title, 'Contact & Feedback');
     assert.equal(contact.props.options.headerTitle(), null, 'the body supplies the single visible page heading');
     const expected = [...retained, ...(signedIn ? [] : ['SignUp', 'Login'])];
-    assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), expected);
+    assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), [...retained, 'SignUp', 'Login'],
+      'auth routes stay mounted while sign-in publishes and signup profile writes finish');
     const buttons = nodes(h.content, 'Pressable');
     assert.equal(buttons.length, expected.length);
     buttons.forEach(button => button.props.onPress());
@@ -78,6 +79,7 @@ test('retained lesson, quiz, synopsis, reader, account, and highlight stack rout
   const routes = nodes(h.stack, 'StackScreen').map(node => [node.props.name, node.props.component]);
   assert.deepEqual(routes, [
     ['Main', nodes(h.stack, 'StackScreen').find(node => node.props.name === 'Main').props.component],
+    ['Profile', '../screens/ProfileScreen'],
     ['Lesson', '../screens/LessonScreen'], ['Quiz', '../screens/QuizScreen'],
     ['Folger', '../screens/FolgerAPITest'], ['MIT', '../screens/MITFullPlayScreen'],
     ['Courses', '../screens/CourseScreen'], ['Root', '../screens/RootScreen'],
@@ -89,7 +91,7 @@ test('retained lesson, quiz, synopsis, reader, account, and highlight stack rout
 
 test('account scenes use the supported no-slide stack option for curtain handoffs', () => {
   const h = navigator();
-  for (const name of ['Root', 'Login', 'SignUp']) {
+  for (const name of ['Root', 'Login', 'SignUp', 'Main']) {
     const route = nodes(h.stack, 'StackScreen').find(node => node.props.name === name);
     assert.equal(route.props.options.animation, 'none');
     assert.equal(route.props.options.animationEnabled, undefined);
@@ -124,6 +126,63 @@ test('one shared header geometry reserves scaled two-line titles without adding 
     assert.equal(flatten(nodes(h.main, 'Drawer')[0].props.screenOptions.headerStyle).height, want);
     assert.equal(flatten(nodes(h.stack, 'Stack')[0].props.screenOptions.headerStyle).height, want);
   }
+});
+
+test('normal drawer and stack surfaces use the shared dark app background', () => {
+  const h = navigator();
+  const colors = require('../../shared/editorialTheme').EDITORIAL_COLORS;
+  const flatten = value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean));
+  const drawerOptions = nodes(h.main, 'Drawer')[0].props.screenOptions;
+  const stackOptions = nodes(h.stack, 'Stack')[0].props.screenOptions;
+  assert.equal(drawerOptions.drawerStyle.backgroundColor, colors.background);
+  assert.equal(drawerOptions.sceneContainerStyle.backgroundColor, colors.background);
+  assert.equal(flatten(drawerOptions.headerStyle).backgroundColor, colors.background);
+  assert.equal(stackOptions.cardStyle?.backgroundColor, colors.background);
+  for (const screen of nodes(h.stack, 'StackScreen')) {
+    assert.equal(screen.props.options?.cardStyle?.backgroundColor ?? colors.background, colors.background, screen.props.name);
+  }
+  for (const screen of nodes(h.main, 'DrawerScreen')) {
+    assert.equal(screen.props.options.drawerLabelStyle.color, colors.text, screen.props.name);
+  }
+});
+
+test('normal app provides a dark navigation theme and light status-bar content', () => {
+  const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) };
+  const colors = require('../../shared/editorialTheme').EDITORIAL_COLORS;
+  const fonts = { regular: { fontFamily: 'System', fontWeight: '400' } };
+  const dependencies = {
+    react: React,
+    'react-redux': { Provider: 'Provider' },
+    './redux/store': {},
+    './Componenets/Navigation': { default: 'Stacks' },
+    'redux-persist/integration/react': { PersistGate: 'PersistGate' },
+    '@react-navigation/native': { NavigationContainer: 'NavigationContainer', DarkTheme: { dark: true, colors: {}, fonts } },
+    'react-native-safe-area-context': { SafeAreaProvider: 'SafeAreaProvider' },
+    './shared/editorialTheme': { EDITORIAL_COLORS: colors },
+    'react-native': { StatusBar: 'StatusBar' },
+    './firebaseConfig': {},
+    './course/AccountCourseProgress': { CourseProgressBridge: 'CourseProgressBridge' },
+    './screens/HomeArrivalCurtain': { default: 'AuthCurtainProvider' },
+    './account/AccountDeletionBridge': { default: 'AccountDeletionBridge' },
+  };
+  const code = babel.transformFileSync(path.resolve(__dirname, '../../NormalApp.js'), {
+    babelrc: false, configFile: false,
+    plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'],
+  }).code;
+  const module = { exports: {} };
+  vm.runInNewContext('(function(require,module,exports){' + code + '\n})', { React })(name => {
+    assert.ok(Object.hasOwn(dependencies, name), `normal app dependency: ${name}`);
+    return dependencies[name];
+  }, module, module.exports);
+  const tree = module.exports.default();
+  const theme = nodes(tree, 'NavigationContainer')[0].props.theme;
+  assert.equal(theme?.dark, true);
+  assert.equal(theme.fonts, fonts);
+  assert.equal(theme.colors.background, colors.background);
+  assert.equal(theme.colors.card, colors.surface);
+  assert.equal(theme.colors.text, colors.text);
+  assert.equal(theme.colors.primary, colors.gold);
+  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'light-content');
 });
 
 test('unused video implementations, data, and YouTube package are removed while the reader WebView remains', () => {

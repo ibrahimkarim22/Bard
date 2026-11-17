@@ -16,7 +16,7 @@ function SynopsisBody({ synopsis, entry, navigation, view, updateView, offsets, 
   const readPlay = <CourseButton title="Read full play" variant="quiet"
     onPress={() => navigation.navigate('MIT', { id: synopsis.workId })} />;
   return <SafeAreaView style={styles.page} edges={['left', 'right', 'bottom']}>
-    <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
+    <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
     <View accessibilityRole="tablist" accessibilityLabel="Synopsis sections" style={styles.sections}>
       {sections.map(section => <Pressable key={section.id} accessibilityRole="tab" accessibilityLabel={section.label}
         accessibilityState={{ selected: view.section === section.id }}

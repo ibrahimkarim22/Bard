@@ -5,7 +5,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useIsFocused } from "@react-navigation/native";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faCheck,
@@ -18,7 +19,11 @@ import {
 import { FIREBASE_AUTH } from "../firebaseConfig";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import * as SecureStore from "expo-secure-store";
+import { runCredentialMutation } from '../account/credentialGate';
+import { runAuthMutation } from '../account/authMutationGate';
+import { authenticationErrorMessage, requiredCredentialsMessage } from '../account/authMessages';
 import AuthStage, { AUTH_COLORS as C } from './AuthStage';
+import AuthFormError from './AuthFormError';
 import { EditorialText as Text } from "../shared/EditorialUI";
 
 const auth = FIREBASE_AUTH;
@@ -43,7 +48,19 @@ const AuthLoginScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
+  const [formError, setFormError] = useState(null);
+  const focused = useIsFocused();
+  const active = useRef(focused);
+  const submission = useRef(null);
+  const formRevision = useRef(0);
+  active.current = focused;
 
+  useEffect(() => {
+    active.current = focused;
+    if (!focused) { submission.current = null; setAuthenticatedUser(null); setLoading(false); setFormError(null); }
+    return () => { active.current = false; submission.current = null; };
+  }, [focused]);
 
   useEffect(() => {
     SecureStore.getItemAsync("userinfo").then((userdata) => {
@@ -56,42 +73,47 @@ const AuthLoginScreen = ({ navigation }) => {
     });
   }, []);
 
-  const Login = async () => {
-    if (remember) {
-      try {
-        await SecureStore.setItemAsync(
-          "userinfo",
-          JSON.stringify({
-            email,
-            password,
-          })
-        );
-      } catch (error) {
-        console.log("Could not save user info", error);
-      }
-    } else {
-      try {
-        await SecureStore.deleteItemAsync("userinfo");
-      } catch (error) {
-        console.log("Could not delete user info", error);
-      }
-    }
+  const changeField = (setField, value) => {
+    formRevision.current += 1;
+    setFormError(null);
+    setField(value);
+  };
 
+  const Login = async () => {
+    if (!active.current || submission.current) return;
+    const requiredMessage = requiredCredentialsMessage(email, password);
+    if (requiredMessage) { setFormError(requiredMessage); return; }
+    const submittedEmail = email.trim();
+    const request = { revision: formRevision.current };
+    submission.current = request;
+    const isCurrent = () => active.current && submission.current === request;
+    let succeeded = false;
+    setFormError(null);
     setLoading(true);
     try {
-      const response = await signInWithEmailAndPassword(auth, email, password);
-      if (auth.currentUser?.uid !== response.user.uid) return;
-      navigation.navigate("Main");
+      const response = await runAuthMutation(() => isCurrent() ? signInWithEmailAndPassword(auth, submittedEmail, password) : null);
+      if (!response || !isCurrent() || auth.currentUser !== response.user) return;
+      // Serialize with confirmed-deletion cleanup; a newly signed-in account's
+      // remembered credentials must not be erased by an older account's job.
+      await runCredentialMutation(async () => {
+        if (!isCurrent() || auth.currentUser !== response.user) return;
+        if (remember) await SecureStore.setItemAsync('userinfo', JSON.stringify({ uid: response.user.uid, email: submittedEmail, password }));
+        else await SecureStore.deleteItemAsync('userinfo');
+      }).catch(() => {});
+      if (!isCurrent() || auth.currentUser !== response.user) return;
+      succeeded = true;
+      setAuthenticatedUser(response.user);
     } catch (error) {
-      console.error(error);
-      alert("Login failed " + error.message);
+      if (!isCurrent() || request.revision !== formRevision.current) return;
+      setFormError(authenticationErrorMessage(error, 'login'));
     } finally {
-      setLoading(false);
+      if (isCurrent() && !succeeded) { submission.current = null; setLoading(false); }
     }
   };
 
   return (
-    <AuthStage scene="crescent" navigation={navigation}>
+    <AuthStage scene="crescent" navigation={navigation} authenticatedUser={authenticatedUser}
+      onSuccessCancelled={() => { submission.current = null; setAuthenticatedUser(null); setLoading(false); }}>
           <View style={styles.header}>
             <Text serif accessibilityRole="header" style={styles.title}>Log in</Text>
           </View>
@@ -105,7 +127,7 @@ const AuthLoginScreen = ({ navigation }) => {
               autoCorrect={false}
               keyboardType="email-address"
               textContentType="emailAddress"
-              onChangeText={setEmail}
+              onChangeText={value => changeField(setEmail, value)}
             />
             <AuthInput
               icon={faLock}
@@ -114,7 +136,7 @@ const AuthLoginScreen = ({ navigation }) => {
               autoCapitalize="none"
               autoCorrect={false}
               textContentType="password"
-              onChangeText={setPassword}
+              onChangeText={value => changeField(setPassword, value)}
               secureTextEntry={!showPassword}
               rightElement={
                 <Pressable
@@ -133,6 +155,8 @@ const AuthLoginScreen = ({ navigation }) => {
                 </Pressable>
               }
             />
+
+            <AuthFormError message={formError} />
 
             <Pressable
               accessibilityRole="checkbox"

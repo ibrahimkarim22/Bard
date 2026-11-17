@@ -1,0 +1,10 @@
+{
+  "region": "us-central1",
+  "requestFunction": "requestAccountDeletion",
+  "statusFunction": "accountDeletionStatus",
+  "statuses": ["pending", "deleting", "retry-needed", "complete"],
+  "phases": ["queued", "revoking-sessions", "deleting-data", "verifying-data", "deleting-auth", "verifying-auth", "complete"],
+  "ticketPattern": "^[a-f0-9]{64}$",
+  "recentAuthenticationSeconds": 300,
+  "acknowledgedReceiptRetentionDays": 7
+}

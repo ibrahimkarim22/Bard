@@ -67,6 +67,7 @@ const text = tree => typeof tree === 'string' || typeof tree === 'number' ? Stri
 const flatten = style => Object.assign({}, ...[style].flat(Infinity).filter(value => value && typeof value === 'object'));
 const blurRadius = style => Number(String(flatten(style).filter || '').match(/\bblur\(\s*(\d+(?:\.\d+)?)px\s*\)/)?.[1] || 0);
 const cardFor = (tree, play) => nodes(tree, 'Pressable').find(node => node.props.accessibilityLabel.includes(play.name));
+const viewWithId = (tree, id) => nodes(tree, 'View').find(node => node.props.testID === id);
 
 function component(file, dimensions = { width: 411, fontScale: 1 }) {
   const React = { createElement(type, props, ...children) { const next = { ...props, children }; return typeof type === 'function' ? type(next) : { type, props: next }; } };
@@ -87,7 +88,7 @@ function component(file, dimensions = { width: 411, fontScale: 1 }) {
   return module.exports.default;
 }
 
-test('an unearned collection blurs whole cards while retaining each source and accessible title', () => {
+test('an unearned collection keeps blurred previews separate from readable titles and locked status', () => {
   const Collection = component('course/MedalsCollection.js');
   const tree = Collection({ plays, completedLevel: 0, onOpenLesson() { assert.fail('locked medals cannot open lessons'); } });
   assert.match(text(tree), /0 of 38 medals earned/);
@@ -98,14 +99,18 @@ test('an unearned collection blurs whole cards while retaining each source and a
   for (const play of plays) {
     const card = cardFor(tree, play);
     assert.ok(card, play.name);
-    assert.ok(blurRadius(card.props.style) > 0, 'the outer card blurs its artwork, title, and status together');
+    assert.equal(blurRadius(card.props.style), 0, 'the title and status inherit no blur from the card');
+    const preview = nodes(card, 'View').find(node => blurRadius(node.props.style) > 0);
+    assert.ok(preview, 'the preview retains its additional blur');
+    assert.equal(nodes(preview, 'LockedMedal').length, 1);
+    assert.equal(nodes(preview, 'Text').length, 0, 'the play title stays outside the blurred layer');
     assert.equal(card.props.disabled, true);
     assert.equal(card.props.accessibilityState.disabled, true);
     assert.equal(card.props.onPress, undefined);
     assert.ok(card.props.accessibilityLabel.includes(play.name), `${play.name} remains in the accessible card label`);
     assert.match(card.props.accessibilityLabel, /Locked/);
-    assert.ok(nodes(card, 'Text').some(node => text(node) === play.name), `${play.name} remains within the blurred card`);
-    assert.match(text(card), /Locked/, 'the status remains within the blurred card');
+    assert.ok(nodes(card, 'Text').some(node => text(node) === play.name), `${play.name} remains visible on the card`);
+    assert.match(text(card), /Locked/);
     const lock = nodes(card, 'LockedMedal')[0];
     assert.deepEqual(Object.keys(lock.props).filter(key => key !== 'children').sort(), ['size', 'source'],
       'locks receive only their source and size, with no play, account, or genre');
@@ -137,7 +142,9 @@ test('only completed plays mount clear earned artwork and can open lessons', () 
   assert.equal(artwork.props.play, completed, 'earned cards pass the original catalogue play without replacing its source');
   assert.equal(artwork.props.play.medalImage, 'assets/medalCollection/mMND.png');
   assert.notEqual(artwork.props.muted, true);
-  assert.match(text(earned), /Earned/); assert.match(text(locked), /Locked/);
+  assert.doesNotMatch(text(earned), /\bEarned\b/, 'earned cards have no redundant footer label');
+  assert.match(earned.props.accessibilityLabel, /Earned/, 'earned state remains available to assistive technology');
+  assert.match(text(locked), /Locked/);
   assert.equal(earned.props.disabled, false); assert.equal(earned.props.accessibilityState.disabled, false);
   assert.equal(locked.props.disabled, true); assert.equal(locked.props.accessibilityState.disabled, true);
   earned.props.onPress(); assert.deepEqual(opened, ['a-midsummer-nights-dream']);
@@ -150,7 +157,8 @@ test('the next available play remains locked until it is completed', () => {
   const tree = Collection({ plays, completedLevel: 1, onOpenLesson() { assert.fail('available does not mean earned'); } });
   const nextPlay = plays.find(play => play.difficulty === 2);
   const available = cardFor(tree, nextPlay);
-  assert.ok(blurRadius(available.props.style) > 0, 'availability keeps the entire locked card blurred');
+  assert.equal(blurRadius(available.props.style), 0, 'the available play title stays readable');
+  assert.ok(nodes(available, 'View').some(node => blurRadius(node.props.style) > 0), 'availability preserves the blurred preview');
   assert.match(available.props.accessibilityLabel, /Locked/);
   assert.equal(available.props.disabled, true);
   assert.equal(available.props.onPress, undefined);
@@ -217,6 +225,57 @@ test('collection uses a single readable column for narrow viewports or large sys
     const flattened = flatten(cards[0].props.style);
     assert.equal(flattened.width, '100%');
     assert.ok(flattened.minHeight >= 48);
+    for (const play of plays) {
+      const stop = viewWithId(tree, `medal-stop-${play.id}`);
+      assert.ok(stop);
+      assert.equal(flatten(stop.props.style).width, '100%', 'large text gets the full available title width');
+      assert.equal(flatten(stop.props.style).alignSelf, 'center');
+    }
+  }
+});
+
+test('medal stops wind left and right in play order while curved links remain decorative', () => {
+  const Collection = component('course/MedalsCollection.js');
+  const tree = Collection({ plays, completedLevel: 1 });
+  const sorted = plays.slice().sort((a, b) => a.difficulty - b.difficulty);
+  assert.deepEqual(nodes(tree, 'Pressable').map(card => card.props.accessibilityLabel.split(' medal,')[0]), sorted.map(play => play.name));
+  for (const [index, play] of sorted.entries()) {
+    const stop = viewWithId(tree, `medal-stop-${play.id}`);
+    assert.ok(stop, 'each play owns one medal stop');
+    assert.equal(flatten(stop.props.style).alignSelf, index % 2 ? 'flex-end' : 'flex-start');
+    assert.equal(flatten(stop.props.style).width, '68%');
+    const link = viewWithId(tree, `medal-link-${play.id}`);
+    if (index === sorted.length - 1) {
+      assert.equal(link, undefined, 'no trail continues below the last medal');
+      continue;
+    }
+    assert.ok(link);
+    assert.equal(link.props.pointerEvents, 'none');
+    assert.equal(link.props.accessible, false);
+    assert.equal(link.props.importantForAccessibility, 'no-hide-descendants');
+    const curve = viewWithId(link, 'medal-curve');
+    assert.ok(curve);
+    assert.equal(flatten(curve.props.style).marginHorizontal, '34%', 'connections meet the centers of the 68% medal stops');
+    assert.deepEqual(flatten(curve.props.style).transform, [{ scaleX: index % 2 ? -1 : 1 }]);
+    const corners = nodes(curve, 'View').map(node => flatten(node.props.style));
+    assert.ok(corners.some(style => style.borderBottomLeftRadius > 0));
+    assert.ok(corners.some(style => style.borderTopRightRadius > 0));
+  }
+});
+
+test('compact medal links curve within their own spacing instead of crossing clear titles', () => {
+  for (const dimensions of [{ width: 320, fontScale: 1 }, { width: 411, fontScale: 1.5 }]) {
+    const Collection = component('course/MedalsCollection.js', dimensions);
+    const tree = Collection({ plays: plays.slice(0, 3), completedLevel: 0 });
+    const links = nodes(tree, 'View').filter(node => node.props.testID?.startsWith('medal-link-'));
+    assert.equal(links.length, 2);
+    for (const link of links) {
+      assert.ok(flatten(link.props.style).height >= 48);
+      assert.equal(nodes(link, 'Text').length, 0, 'curves have their own layout slot');
+      const curve = viewWithId(link, 'medal-curve');
+      assert.equal(flatten(curve.props.style).alignSelf, 'center');
+      assert.ok(flatten(curve.props.style).width <= 64, 'the decorative curve remains within the narrow viewport');
+    }
   }
 });
 

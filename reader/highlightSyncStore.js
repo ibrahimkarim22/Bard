@@ -30,6 +30,7 @@ const defaultId = () => 'hs-' + Date.now().toString(36) + '-' + (++sequence).toS
 const protocol = () => require('./highlightSyncProtocol');
 const ENVELOPE_KEYS = ['schemaVersion', 'cloudKey', 'localIds', 'record', 'deleted', 'generation', 'serverRevision', 'serverRecord', 'pending', 'syncError', 'conflict'];
 const CLOUD_PERMANENT = new Set(['permission-denied', 'unauthenticated', 'invalid-argument', 'CONFLICT', 'DELETED', 'CAPACITY', 'COUNT_LIMIT', 'WORK_BYTES_LIMIT', 'INVALID_REMOTE', 'SYNC_CONFLICT', 'SYNC_DELETED', 'SYNC_COUNT_LIMIT', 'SYNC_WORK_LIMIT', 'SYNC_RECORD_LIMIT', 'SYNC_LISTENER_LIMIT', 'SYNC_INVALID_STATE', 'SYNC_INVALID_OPERATION', 'SYNC_RECEIPT_MISMATCH']);
+const DELETED_WORK = freeze({ hydrated: false, loading: false, saving: false, records: [], unresolved: [], unreadable: [], conflicts: [], tombstones: [], syncById: {}, syncSummary: {}, error: null, readError: null, writeBlocked: true });
 
 function createHighlightSyncStoreManager(storage, { namespace, makeId = defaultId, now = Date.now } = {}) {
   if (typeof namespace !== 'string' || !/^@bard(?:-test\/|\/reader-highlights-sync:isolated\/)[A-Za-z0-9._/-]+$/.test(namespace) || namespace.endsWith('/')) throw new Error('An explicit isolated namespace is required for highlight synchronization.');
@@ -40,15 +41,21 @@ function createHighlightSyncStoreManager(storage, { namespace, makeId = defaultI
 function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeId = defaultId, now = Date.now, legacyPrefixFor, migrateLegacy = true } = {}) {
   if (typeof namespace !== 'string' || !namespace.length || namespace.endsWith('/') || (legacyPrefixFor !== undefined && typeof legacyPrefixFor !== 'function')) throw new Error('Invalid synchronization namespace configuration.');
   if (typeof makeId !== 'function' || typeof now !== 'function') throw new Error('Invalid highlight synchronization store configuration.');
-  const works = new Map(), catalogueTails = new Map(), catalogueListeners = new Map();
+  const works = new Map(), catalogueTails = new Map(), catalogueListeners = new Map(), blockedAccounts = new Set(), accountEpochs = new Map();
+  function assertAccount(uid, shared) { if (blockedAccounts.has(uid) || shared?.retired) throw failure('ACCOUNT_DELETION_BLOCKED'); }
+  function guardedOptions(uid, shared, options) {
+    const epoch = accountEpochs.get(uid) || 0;
+    return { ...options, isCurrent: () => !blockedAccounts.has(uid) && !shared?.retired && epoch === (accountEpochs.get(uid) || 0) && (!options?.isCurrent || options.isCurrent()) };
+  }
   function notifyCatalogue(uid) { for (const listener of catalogueListeners.get(uid) || []) { try { listener(); } catch (_) { /* Observer only. */ } } }
   const segment = value => { if (typeof value !== 'string' || !value.length || value.length > 512) throw failure('INVALID_HIGHLIGHT'); return encodeURIComponent(value); };
   const prefixFor = (uid, workId, legacy = false) => namespace + (legacy ? '/legacy/' : '/v2/') + segment(uid) + '/' + segment(workId) + '/';
   function sharedFor(uid, workId) {
-    return sharedAt(prefixFor(uid, workId));
+    return sharedAt(prefixFor(uid, workId), uid);
   }
-  function sharedAt(prefix) {
-    if (!works.has(prefix)) works.set(prefix, { tail: Promise.resolve(), values: new Map(), originals: new Map(), loaded: false, loading: false, saving: false, blocked: false, needsReload: false, migrationPending: false, error: null, readError: null, failedIntent: null, rawFailedIntent: null, views: new Map() });
+  function sharedAt(prefix, uid) {
+    assertAccount(uid);
+    if (!works.has(prefix)) works.set(prefix, { uid, tail: Promise.resolve(), values: new Map(), originals: new Map(), loaded: false, loading: false, saving: false, blocked: false, needsReload: false, migrationPending: false, error: null, readError: null, failedIntent: null, rawFailedIntent: null, views: new Map() });
     return works.get(prefix);
   }
   function publishShared(uid, shared) {
@@ -79,6 +86,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
     const prefix = prefixFor(uid, canonical.workId), legacyPrefix = legacyPrefixFor ? legacyPrefixFor(uid, canonical.workId) : prefixFor(uid, canonical.workId, true);
     const scope = { uid, workId: canonical.workId, canonical };
     const shared = sharedFor(uid, canonical.workId);
+    function current(options) { assertAccount(uid, shared); if (options?.isCurrent && !options.isCurrent()) throw failure('CANCELLED'); }
     const viewKey = JSON.stringify([canonical.contentVersion, canonical.canonicalTextVersion]);
     if (shared.views.has(viewKey)) return shared.views.get(viewKey).store;
     const view = { snapshot: null, listeners: new Set(), classify: null, store: null };
@@ -114,6 +122,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
       return validateEnvelope(JSON.parse(raw), key);
     }
     function validEnvelopes() {
+      if (shared.retired) return [];
       const values = [];
       for (const [key, raw] of shared.values) { try { values.push([key, readEnvelope(key, raw)]); } catch (_) { /* Retained unavailable metadata is classified below. */ } }
       return values;
@@ -161,7 +170,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
       for (const other of shared.views.values()) { other.snapshot = other.classify(); for (const listener of other.listeners) { try { listener(); } catch (_) { /* Observers cannot interrupt confirmed write ordering. */ } } }
       notifyCatalogue(uid);
     }
-    function enqueue(run) { const promise = shared.tail.then(run); shared.tail = promise.catch(() => {}); return promise; }
+    function enqueue(run) { const promise = shared.tail.then(async () => { assertAccount(uid, shared); const result = await run(); assertAccount(uid, shared); return result; }); shared.tail = promise.catch(() => {}); return promise; }
     function storageAvailable() { if (!storage || ['getAllKeys', 'getItem', 'setItem'].some(name => typeof storage[name] !== 'function')) throw failure('STORAGE_UNAVAILABLE'); }
     function setLocalError(error) { shared.error = freeze({ code: error.code || 'WRITE_FAILED', message: error.message, retryable: true }); shared.blocked = true; publish(); }
     function checkCapacity(key, raw) {
@@ -398,7 +407,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
       }, options);
     }
     const store = {
-      getSnapshot: () => view.snapshot,
+      getSnapshot: () => shared.retired ? DELETED_WORK : view.snapshot,
       subscribe(listener) { view.listeners.add(listener); return () => view.listeners.delete(listener); },
       hydrate: options => enqueue(async () => { await ensureLoaded(options); return view.snapshot; }),
       refreshReadOnly: options => enqueue(async () => { await load(options, true); return view.snapshot; }),
@@ -456,7 +465,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
     let workId = null;
     try { const decoded = decodeURIComponent(workKey); if (decoded.length && decoded.length <= 512 && encodeURIComponent(decoded) === workKey) workId = decoded; } catch (_) { /* Raw unavailable segment stays removable. */ }
     const prefix = namespace + '/v2/' + segment(uid) + '/' + workKey + '/';
-    return { workId, shared: sharedAt(prefix), prefixes: [prefix, legacyOwnerPrefix(uid) + workKey + '/'] };
+    return { workId, shared: sharedAt(prefix, uid), prefixes: [prefix, legacyOwnerPrefix(uid) + workKey + '/'] };
   }
   const retiredPrefix = (uid, workKey) => namespace + '/retired/' + segment(uid) + '/' + workKey + '/';
   const retiredKey = (uid, workKey, key) => retiredPrefix(uid, workKey) + encodeURIComponent(key);
@@ -465,9 +474,10 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
     if (!marker) return false;
     try { const parsed = JSON.parse(marker); return exactKeys(parsed, ['schemaVersion', 'key', 'raw']) && parsed.schemaVersion === 1 && parsed.key === key && parsed.raw === raw; } catch (_) { return false; }
   }
-  function enqueueRaw(shared, run) { const promise = shared.tail.then(run); shared.tail = promise.catch(() => {}); return promise; }
+  function enqueueRaw(shared, run) { const promise = shared.tail.then(async () => { assertAccount(shared.uid, shared); const result = await run(); assertAccount(shared.uid, shared); return result; }); shared.tail = promise.catch(() => {}); return promise; }
   async function persistRetirement(input, options, shared) {
     const { uid, workKey, key, raw } = input, scope = rawScope(input);
+    options = guardedOptions(uid, shared, options);
     if (typeof key !== 'string' || !scope.prefixes.some(prefix => key === prefix.slice(0, -1) || key.startsWith(prefix)) || typeof raw !== 'string') throw failure('INVALID_HIGHLIGHT');
     current(options);
     if (!storage || ['getAllKeys', 'getItem', 'setItem'].some(name => typeof storage[name] !== 'function')) throw failure('STORAGE_UNAVAILABLE');
@@ -611,6 +621,7 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
     try { return catalogueRows(JSON.parse(raw)); } catch (_) { throw failure('READ_FAILED'); }
   }
   function writeWorkCatalogue(uid, rows, options) {
+    options = guardedOptions(uid, null, options);
     const before = catalogueTails.get(uid) || Promise.resolve();
     const promise = before.then(async () => {
       current(options); const validated = catalogueRows(rows);
@@ -620,7 +631,22 @@ function createHighlightSyncStoreManagerForNamespace(storage, { namespace, makeI
     });
     catalogueTails.set(uid, promise.catch(() => {})); return promise;
   }
+  function blockAccount(uid) {
+    segment(uid); blockedAccounts.add(uid); accountEpochs.set(uid, (accountEpochs.get(uid) || 0) + 1);
+    for (const shared of works.values()) if (shared.uid === uid) { shared.retired = true; publishShared(uid, shared); }
+  }
+  async function drainAccount(uid) { await Promise.all([catalogueTails.get(uid), ...[...works.values()].filter(shared => shared.uid === uid).map(shared => shared.tail)]); }
+  function clearAccount(uid) {
+    for (const [key, shared] of works) if (shared.uid === uid) {
+      shared.values.clear(); shared.originals.clear(); shared.failedIntent = null; shared.rawFailedIntent = null;
+      shared.error = null; shared.readError = null; shared.loaded = false; shared.loading = false; shared.saving = false;
+      publishShared(uid, shared); works.delete(key);
+    }
+    catalogueTails.delete(uid); catalogueListeners.delete(uid);
+  }
+  async function unblockAccount(uid, allowed = () => true) { await drainAccount(uid); if (!allowed()) throw failure('ACCOUNT_DELETION_PERMANENT'); clearAccount(uid); blockedAccounts.delete(uid); }
   return { forWork, discoverWorks, discoverPendingWorks, readLocalWorkCatalogue, readWorkCatalogue, writeWorkCatalogue, readRawWork, retireRawEntry, retryRawWork, namespace,
+    blockAccount, drainAccount, clearAccount, unblockAccount,
     abandonRawIntent(scope) { rawScope(scope).shared.rawFailedIntent = null; },
     subscribeCatalogue(uid, listener) { let set = catalogueListeners.get(uid); if (!set) { set = new Set(); catalogueListeners.set(uid, set); } set.add(listener); return () => set.delete(listener); } };
 }

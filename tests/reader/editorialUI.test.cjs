@@ -39,8 +39,8 @@ test('illustrated rows use the play cover, preserve readable titles and respect 
   assert.equal(opened, 0);
 });
 
-test('light course pages retain bottom safe area while the navigator owns the top', () => {
+test('dark course pages retain bottom safe area while the navigator owns the top', () => {
   const h = synopsisUIHost({ screen: 'course/CourseUI.js', exportName: 'CoursePage' });
   assert.deepEqual(nodes(h.render(), 'SafeAreaView')[0].props.edges, ['left', 'right', 'bottom']);
-  assert.equal(nodes(h.render(), 'StatusBar')[0].props.barStyle, 'dark-content');
+  assert.equal(nodes(h.render(), 'StatusBar')[0].props.barStyle, 'light-content');
 });

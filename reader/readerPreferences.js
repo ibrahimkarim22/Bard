@@ -12,7 +12,7 @@ function normalizePreferences(input) {
     fontId: own(FONTS, input.fontId) ? input.fontId : 'literata',
     fontSize: size,
     lineSpacing: own(LINE_SPACING, input.lineSpacing) ? input.lineSpacing : 'comfortable',
-    theme: own(THEMES, input.theme) ? input.theme : 'paper',
+    theme: own(THEMES, input.theme) ? input.theme : DEFAULT_PREFERENCES.theme,
   });
 }
 

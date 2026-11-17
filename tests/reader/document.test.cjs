@@ -78,4 +78,14 @@ test('the local document viewport leaves browser zoom available', () => {
   assert.doesNotMatch(viewport, /maximum-scale|user-scalable\s*=\s*no/);
 });
 
+test('the initial document paints the dark reader and Night highlights before appearance is applied', () => {
+  const { createReaderDocument } = require('../../reader/readerDocument');
+  const $ = cheerio.load(createReaderDocument(fixture(), { documentId: 'first-frame' }).html);
+  const css = $('style').text();
+  for (const [property, value] of Object.entries({ background: '#121116', panel: '#1b1820', text: '#f3eadb', secondary: '#bdb1bd', accent: '#c6a663', border: '#423845' })) {
+    assert.ok(css.includes(`--reader-${property}:${value};`), `initial ${property} uses the dark reader palette`);
+  }
+  assert.match(css, /::highlight\(bard-highlight-yellow\)\{background-color:var\(--highlight-yellow,#50472A\)/);
+});
+
 module.exports = { fixture };

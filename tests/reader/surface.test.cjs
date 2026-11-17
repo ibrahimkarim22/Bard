@@ -115,6 +115,23 @@ function nodes(tree, type) {
   return [...(tree.type === type ? [tree] : []), ...(tree.props?.children || []).flat(Infinity).flatMap(child => nodes(child, type))];
 }
 
+test('native and web surfaces default unknown themes to Night while preserving explicit light choices', () => {
+  const constants = require('../../reader/readerConstants');
+  const previousWindow = global.window;
+  global.window = { addEventListener() {}, removeEventListener() {} };
+  try {
+    for (const file of ['reader/ReaderSurface.native.js', 'reader/ReaderSurface.web.js']) {
+      const surface = host(file, { './readerConstants': constants });
+      try {
+        for (const [theme, background] of [[undefined, '#121116'], ['unknown', '#121116'], ['paper', '#F7F3EA'], ['sepia', '#EDE1CC']]) {
+          const tree = surface.render({ document, preferences: theme === undefined ? undefined : { ...preferences, theme } });
+          assert.equal(Object.assign({}, ...tree.props.style).backgroundColor, background);
+        }
+      } finally { surface.unmount(); }
+    }
+  } finally { global.window = previousWindow; }
+});
+
 test('native appearance changes inject into the ready document without replacing its source', () => {
   const surface = host('reader/ReaderSurface.native.js');
   const diagnostics = [];
@@ -288,7 +305,7 @@ test('web appearance messages require the owned frame and do not replace srcDoc'
   const previousWindow = global.window;
   global.window = { addEventListener(type, callback) { if (type === 'message') receive = callback; }, removeEventListener() {} };
   try {
-    const surface = host('reader/ReaderSurface.web.js');
+    const surface = host('reader/ReaderSurface.web.js', { './readerConstants': require('../../reader/readerConstants') });
     const props = { document, preferences };
     let frame = nodes(surface.render(props), 'iframe')[0];
     const srcDoc = frame.props.srcDoc;

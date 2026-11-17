@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const expectedDefault = { schemaVersion: 1, fontId: 'literata', fontSize: 20, lineSpacing: 'comfortable', theme: 'paper' };
+const expectedDefault = { schemaVersion: 1, fontId: 'literata', fontSize: 20, lineSpacing: 'comfortable', theme: 'night' };
 const key = '@bard/reader-preferences:v1';
 function api() {
   const file = path.resolve(__dirname, '../../reader/readerPreferences.js');
@@ -14,8 +14,9 @@ function api() {
 }
 function memoryStorage(value) {
   const values = new Map([['persist:root', 'untouched course/auth state']]);
+  const writes = [];
   if (value !== undefined) values.set(key, value);
-  return { values, async getItem(name) { return values.get(name) ?? null; }, async setItem(name, text) { values.set(name, text); } };
+  return { values, writes, async getItem(name) { return values.get(name) ?? null; }, async setItem(name, text) { writes.push([name, text]); values.set(name, text); } };
 }
 function deferred() {
   let resolve;
@@ -26,7 +27,7 @@ function deferred() {
 
 test('invalid/missing stored preferences yield readable defaults without executable or unknown values', () => {
   const { normalizePreferences } = api();
-  for (const value of [null, [], 12, 'paper', { schemaVersion: 7 }, { theme: '<script>', fontId: 'remote-font', fontSize: NaN }]) {
+  for (const value of [null, [], 12, 'paper', { schemaVersion: 7 }, { theme: '<script>', fontId: 'remote-font', fontSize: NaN }, { schemaVersion: 1, theme: '<script>' }]) {
     assert.deepEqual(normalizePreferences(value), expectedDefault);
   }
   assert.deepEqual(normalizePreferences({ schemaVersion: 1, fontId: 'source-serif-4', fontSize: 24, lineSpacing: 'compact', theme: 'night', account: 'discard' }), {
@@ -59,15 +60,34 @@ test('pending hydration cannot overwrite saved settings with defaults or an earl
   assert.equal(storage.values.has(key), false, 'hydration must never auto-save its result');
 });
 
-test('missing/corrupted/oversized storage settles without writing over the stored value', async () => {
+test('missing/corrupted/oversized storage opens Night without writing over the stored value', async () => {
   const { createReaderPreferenceStore } = api();
   for (const value of [undefined, '{bad json', 'x'.repeat(5000), JSON.stringify({ schemaVersion: 9, theme: 'night' })]) {
     const storage = memoryStorage(value);
     const store = createReaderPreferenceStore(storage);
+    assert.deepEqual(store.getSnapshot().preferences, expectedDefault);
     await store.hydrate();
     assert.equal(store.getSnapshot().hydrated, true);
     assert.deepEqual(store.getSnapshot().preferences, expectedDefault);
     assert.equal(storage.values.get(key), value);
+    assert.deepEqual(storage.writes, []);
+  }
+});
+
+test('saved Paper, Sepia and Night choices restore in the same store without a storage write', async () => {
+  const { createReaderPreferenceStore } = api();
+  for (const theme of ['paper', 'sepia', 'night']) {
+    const saved = { ...expectedDefault, theme, fontId: 'source-serif-4', fontSize: 26, lineSpacing: 'spacious' };
+    const stored = JSON.stringify(saved);
+    const storage = memoryStorage(stored);
+    const store = createReaderPreferenceStore(storage);
+    assert.equal(store.getSnapshot().preferences.theme, 'night');
+    await store.hydrate();
+    await store.flush();
+    assert.deepEqual(store.getSnapshot().preferences, saved);
+    assert.equal(storage.values.get(key), stored);
+    assert.deepEqual(storage.writes, []);
+    assert.equal(storage.values.get('persist:root'), 'untouched course/auth state');
   }
 });
 
@@ -114,9 +134,9 @@ test('write failure preserves session preferences and retry saves the newest val
   storage.setItem = async (name, value) => { if (fail) throw new Error('disk unavailable'); storage.values.set(name, value); };
   const store = createReaderPreferenceStore(storage);
   await store.hydrate();
-  store.update({ theme: 'night' });
+  store.update({ theme: 'paper' });
   await store.flush();
-  assert.equal(store.getSnapshot().preferences.theme, 'night');
+  assert.equal(store.getSnapshot().preferences.theme, 'paper');
   assert.equal(store.getSnapshot().error, 'write');
   fail = false;
   store.update({ fontId: 'source-sans-3' });
@@ -124,7 +144,7 @@ test('write failure preserves session preferences and retry saves the newest val
   await store.flush();
   assert.equal(store.getSnapshot().error, null);
   assert.equal(JSON.parse(storage.values.get(key)).fontId, 'source-sans-3');
-  assert.equal(JSON.parse(storage.values.get(key)).theme, 'night');
+  assert.equal(JSON.parse(storage.values.get(key)).theme, 'paper');
 });
 
 test('rapid updates serialize storage so an older completion cannot replace the latest selection', async () => {
@@ -147,7 +167,7 @@ test('rapid updates serialize storage so an older completion cannot replace the 
 
 test('reset restores and saves only reader defaults', async () => {
   const { createReaderPreferenceStore } = api();
-  const storage = memoryStorage(JSON.stringify({ ...expectedDefault, theme: 'night', fontSize: 30 }));
+  const storage = memoryStorage(JSON.stringify({ ...expectedDefault, theme: 'paper', fontSize: 30 }));
   const store = createReaderPreferenceStore(storage);
   await store.hydrate();
   store.reset();

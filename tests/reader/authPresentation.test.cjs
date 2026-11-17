@@ -26,11 +26,28 @@ function authHost(screen, options = {}) {
   const calls = { auth: [], secure: [], profile: [], firestore: [], navigation: [], dispatch: [], alerts: [], diagnostics: [] };
   const user = { uid: 'dummy-account' };
   const auth = { currentUser: user };
+  const flights = [];
+  const transition = { active: false, phase: null, id: null,
+    begin(request) {
+      if (transition.active) return null;
+      const id = `flight-${flights.length + 1}`;
+      flights.push({ ...request, id });
+      Object.assign(transition, { active: true, phase: 'closing', id });
+      return id;
+    },
+    cancel(id) {
+      if (transition.id !== id || transition.phase !== 'closing') return;
+      Object.assign(transition, { active: false, phase: null, id: null });
+      flights.find(flight => flight.id === id).onCancel?.();
+    },
+  };
   const database = {};
   const navigation = {
     navigate: (...args) => calls.navigation.push(args),
     canGoBack: () => options.canGoBack !== false,
     goBack: () => calls.navigation.push(['goBack']),
+    reset: state => calls.navigation.push(['reset', state]),
+    getParent: () => options.parent,
     dispatch: action => { calls.dispatch.push(action); calls.navigation.push(['dispatch', action]); },
     addListener(event, callback) {
       if (!listeners.has(event)) listeners.set(event, new Set());
@@ -92,7 +109,7 @@ function authHost(screen, options = {}) {
       calls.auth.push(['createUser', ...args]);
       return options.createUser ? options.createUser(...args) : { user };
     },
-    async updateProfile(...args) { calls.profile.push(args); },
+    async updateProfile(...args) { calls.profile.push(args); return options.updateProfile?.(...args); },
   };
   function load(file) {
     if (cache.has(file)) return cache.get(file);
@@ -113,10 +130,11 @@ function authHost(screen, options = {}) {
       };
       if (name === '@react-navigation/native') return { useNavigation: () => navigation, useIsFocused: () => focused };
       if (name === 'expo-secure-store') return secureStore;
+      if (name === '../account/authMutationGate') return require('../../account/authMutationGate');
       if (name === 'firebase/auth') return authentication;
       if (name === 'firebase/firestore') return {
         doc(db, collection, uid) { assert.equal(db, database); return { collection, uid }; },
-        async setDoc(...args) { calls.firestore.push(args); },
+        async setDoc(...args) { calls.firestore.push(args); return options.setDoc?.(...args); },
       };
       if (name.endsWith('/firebaseConfig')) return { FIREBASE_AUTH: auth, FIRESTORE_DB: database };
       if (name.endsWith('/EditorialUI')) return { EditorialText: props => React.createElement('Text', { allowFontScaling: true, ...props }, ...props.children) };
@@ -125,6 +143,7 @@ function authHost(screen, options = {}) {
         __esModule: true,
         default: props => ({ type: 'AuthStage', props }),
       };
+      if (name === './HomeArrivalCurtain') return { useAuthCurtainTransition: () => transition };
       if (name === './WelcomeBackground' || name === './WelcomeMoon') return {
         __esModule: true, default: props => ({ type: name.slice(2), props }),
       };
@@ -140,7 +159,7 @@ function authHost(screen, options = {}) {
   }
   const Screen = load(screen).default;
   const h = {
-    auth, user, calls, navigation,
+    auth, user, calls, navigation, flights, transition,
     render() {
       cursor = 0;
       effects = [];
@@ -152,6 +171,17 @@ function authHost(screen, options = {}) {
     field(placeholder) { return nodes(h.tree, 'TextInput').find(node => node.props.placeholder === placeholder); },
     fill(placeholder, value) { h.field(placeholder).props.onChangeText(value); h.render(); },
     button(label) { return nodes(h.tree, 'Pressable').find(node => node.props.accessibilityLabel === label || text(node).trim() === label); },
+    openEntrance() { nodes(h.tree, 'WelcomeBackground')[0].props.onOpened(); return h.render(); },
+    coverSuccess() {
+      if (transition.phase !== 'closing') return;
+      const flight = flights.at(-1);
+      transition.phase = 'covered';
+      if (flight.commit() === false) {
+        Object.assign(transition, { active: false, phase: null, id: null });
+        flight.onCancel?.();
+      }
+      return h.render();
+    },
     focus(value) { focused = value; return h.render(); },
     unmount() { slots.forEach(slot => slot?.cleanup?.()); },
     beforeRemove(action) {
@@ -210,12 +240,14 @@ test('remembered login survives presentation rerenders and uses the original aut
   h.render();
   await h.button('Log in').props.onPress();
   h.render();
-  assert.deepEqual(h.calls.secure, [['read', 'userinfo'], ['write', 'userinfo', remembered]]);
+  assert.deepEqual(h.calls.secure, [['read', 'userinfo'], ['write', 'userinfo', { uid: h.user.uid, ...remembered }]]);
   assert.equal(h.calls.auth.length, 1);
   assert.equal(h.calls.auth[0][0], 'signIn');
   assert.equal(h.calls.auth[0][1], h.auth);
   assert.deepEqual(h.calls.auth[0].slice(2), [remembered.email, remembered.password]);
-  assert.deepEqual(h.calls.navigation, [['Main']]);
+  assert.deepEqual(h.calls.navigation, [], 'successful login waits for the account curtains');
+  assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, h.user);
+  assert.equal(h.button('Log in').props.disabled, true, 'submission stays locked through the handoff');
   assert.equal(h.calls.firestore.length, 0);
 });
 
@@ -242,10 +274,14 @@ test('pending login disables submission and retains the existing account-switch 
 test('login failures restore the submit control and preserve failure feedback', async () => {
   const h = authHost('screens/AuthLoginScreen.js', { signIn: async () => { throw Error('dummy rejection'); } });
   await h.flush();
+  h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
   await h.button('Log in').props.onPress();
   h.render();
   assert.equal(h.calls.navigation.length, 0);
-  assert.deepEqual(h.calls.alerts, ['Login failed dummy rejection']);
+  assert.match(text(h.tree), /couldn.t log you in/i);
+  assert.equal(nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert').length, 1);
+  assert.deepEqual(h.calls.alerts, []);
+  assert.deepEqual(h.calls.diagnostics, []);
   assert.equal(h.button('Log in').props.disabled, false);
 });
 
@@ -277,19 +313,300 @@ test('signup keeps the original account and profile defaults after the curtain p
   assert.deepEqual(plain(h.calls.firestore[0]), [{ collection: 'users', uid: 'dummy-account' }, {
     userId: 'dummy-account', completedLevel: 0, profileImage,
   }]);
-  assert.deepEqual(h.calls.navigation, [['Main']]);
-  assert.equal(h.button('Create account').props.disabled, false);
+  assert.deepEqual(h.calls.navigation, [], 'signup waits for the covered handoff after all profile writes');
+  assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, h.user);
+  assert.equal(h.button('Create account').props.disabled, true);
+  assert.equal(h.calls.alerts.length, 0, 'no success alert interrupts the curtain transition');
+});
+
+test('rapid submit activations start only one authentication request', async () => {
+  for (const [screen, label] of [['screens/AuthLoginScreen.js', 'Log in'], ['screens/SignUpScreen.js', 'Create account']]) {
+    const pending = deferred();
+    const h = authHost(screen, { signIn: () => pending.promise, createUser: () => pending.promise });
+    await h.flush();
+    h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const submit = h.button(label).props.onPress;
+    const first = submit(), second = submit();
+    await h.flush();
+    assert.equal(h.calls.auth.length, 1);
+    pending.resolve({ user: h.user });
+    await Promise.all([first, second]); h.render();
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, h.user);
+    assert.equal(h.calls.navigation.length, 0);
+  }
+});
+
+test('leaving a form before authentication completes cannot schedule a Home reveal', async () => {
+  for (const screen of ['screens/AuthLoginScreen.js', 'screens/SignUpScreen.js']) {
+    const pending = deferred();
+    const h = authHost(screen, { signIn: () => pending.promise, createUser: () => pending.promise });
+    await h.flush();
+    h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const submit = h.button(screen.includes('Login') ? 'Log in' : 'Create account').props.onPress();
+    await h.flush(); h.focus(false);
+    pending.resolve({ user: h.user }); await submit; h.render();
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, null);
+    assert.equal(h.calls.profile.length, screen.includes('SignUp') ? 1 : 0,
+      'a created account still receives its original profile even when its visual handoff is cancelled');
+    assert.equal(h.calls.firestore.length, screen.includes('SignUp') ? 1 : 0);
+    assert.equal(h.calls.navigation.length, 0);
+  }
+});
+
+test('leaving a form while an older authentication mutation holds the queue skips its SDK request', async () => {
+  const { runAuthMutation } = require('../../account/authMutationGate');
+  for (const [screen, label] of [['screens/AuthLoginScreen.js', 'Log in'], ['screens/SignUpScreen.js', 'Create account']]) {
+    const entered = deferred(), release = deferred();
+    const holding = runAuthMutation(() => { entered.resolve(); return release.promise; });
+    await entered.promise;
+    const h = authHost(screen);
+    await h.flush();
+    h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const submitting = h.button(label).props.onPress();
+    await h.flush();
+    const beforeRelease = h.calls.auth.length;
+    h.focus(false);
+    release.resolve();
+    await holding; await submitting; h.render();
+    assert.equal(beforeRelease, 0, screen + ' must wait for the authentication mutation queue');
+    assert.equal(h.calls.auth.length, 0, screen + ' must recheck its active submission before calling the SDK');
+    assert.equal(h.calls.profile.length, 0);
+    assert.equal(h.calls.firestore.length, 0);
+    assert.equal(h.calls.navigation.length, 0);
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, null);
+  }
+});
+
+test('returning to login accepts a new attempt without a late older response changing it', async () => {
+  const first = deferred(), second = deferred();
+  let attempts = 0;
+  const h = authHost('screens/AuthLoginScreen.js', { signIn: () => (++attempts === 1 ? first : second).promise });
+  await h.flush();
+  h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+  const old = h.button('Log in').props.onPress(); await h.flush();
+  h.focus(false); h.focus(true);
+  const current = h.button('Log in').props.onPress(); await h.flush();
+  assert.equal(h.calls.auth.length, 1, 'the new attempt waits for the earlier SDK mutation to settle');
+  first.resolve({ user: h.user }); await old; await h.flush();
+  assert.equal(h.calls.auth.length, 2);
+  assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, null);
+  assert.equal(h.button('Log in').props.disabled, true);
+  second.resolve({ user: h.user }); await current; h.render();
+  assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, h.user);
+});
+
+test('signup waits for each profile write and leaves failures on the form', async () => {
+  for (const failedStep of ['updateProfile', 'setDoc']) {
+    const pending = deferred();
+    const h = authHost('screens/SignUpScreen.js', { [failedStep]: () => pending.promise });
+    h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const completion = h.button('Create account').props.onPress();
+    await h.flush();
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, null);
+    assert.equal(h.calls.navigation.length, 0);
+    pending.reject(Error('dummy profile failure')); await completion; h.render();
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, null);
+    assert.match(text(h.tree), /account was created.*profile setup/i);
+    assert.deepEqual(h.calls.alerts, []);
+    assert.deepEqual(h.calls.diagnostics, []);
+    assert.equal(h.button('Create account').props.disabled, false);
+    if (failedStep === 'updateProfile') assert.equal(h.calls.firestore.length, 0);
+  }
+});
+
+test('successful account curtains commit Home only after covering, with a one-use owner-bound reveal', () => {
+  const props = { scene: 'crescent', children: [] };
+  const h = authHost('screens/AuthStage.js', { props });
+  h.openEntrance();
+  props.authenticatedUser = h.user; h.render(); h.render();
+  const curtain = nodes(h.tree, 'WelcomeBackground')[0];
+  assert.equal(curtain.props.closing, false, 'local curtain is retained while the persistent layer takes over');
+  assert.equal(h.transition.phase, 'closing');
+  assert.equal(nodes(h.tree, 'StatusBar').length, 0, 'the persistent layer owns the system bar through navigation');
+  assert.equal(h.calls.navigation.length, 0);
+  h.coverSuccess(); h.coverSuccess();
+  assert.equal(h.calls.navigation.length, 1);
+  const [method, state] = h.calls.navigation[0];
+  assert.equal(method, 'reset');
+  assert.equal(state.index, 0);
+  assert.equal(state.routes.length, 1);
+  assert.equal(state.routes[0].name, 'Main');
+  assert.equal(state.routes[0].params.screen, 'Home');
+  assert.equal(state.routes[0].params.authReveal, undefined, 'no second curtain is requested through route params');
+  assert.equal(h.flights[0].user, h.user);
+  h.unmount();
+  assert.equal(h.transition.phase, 'covered', 'source cleanup preserves the layer after planned navigation');
+});
+
+test('drawer account success resets the owning stack rather than the drawer', () => {
+  const resets = [], parent = { reset: state => resets.push(state), getParent: () => undefined };
+  const props = { scene: 'sun', children: [] };
+  const h = authHost('screens/AuthStage.js', { props, parent });
+  h.openEntrance();
+  props.authenticatedUser = h.user; h.render(); h.render();
+  h.coverSuccess();
+  assert.equal(resets.length, 1);
+  assert.equal(resets[0].routes[0].params.screen, 'Home');
+  assert.equal(h.calls.navigation.length, 0);
+});
+
+test('fast authentication waits for the local opening before taking over at the same curtain position', () => {
+  const props = { scene: 'sun', children: [] };
+  const h = authHost('screens/AuthStage.js', { props });
+  props.authenticatedUser = h.user; h.render(); h.render();
+  assert.equal(h.flights.length, 0, 'an unfinished entrance is not replaced with an already-open curtain');
+  h.openEntrance(); h.render();
+  assert.equal(h.flights.length, 1);
+  assert.equal(h.transition.phase, 'closing');
+});
+
+test('account changes during the close cancel the handoff and reopen the form', () => {
+  let cancellations = 0;
+  const props = { scene: 'sun', children: [], onSuccessCancelled: () => cancellations++ };
+  const h = authHost('screens/AuthStage.js', { props });
+  h.openEntrance();
+  props.authenticatedUser = h.user; h.render(); h.render();
+  h.auth.currentUser = { uid: 'other-dummy-account' };
+  h.coverSuccess(); h.render();
+  assert.equal(h.calls.navigation.length, 0);
+  assert.equal(cancellations, 1);
+  assert.equal(nodes(h.tree, 'WelcomeBackground')[0].props.closing, false);
+});
+
+test('a cancelled success close cannot enter Home through a late completion', () => {
+  for (const leave of ['blur', 'unmount']) {
+    const props = { scene: 'sun', children: [] };
+    const h = authHost('screens/AuthStage.js', { props });
+    h.openEntrance();
+    props.authenticatedUser = h.user; h.render(); h.render();
+    const close = h.flights[0].commit;
+    if (leave === 'blur') h.focus(false); else h.unmount();
+    close(); close();
+    assert.equal(h.calls.navigation.length, 0, leave);
+  }
 });
 
 test('failed signup does not create a profile or navigate away', async () => {
   const h = authHost('screens/SignUpScreen.js', { createUser: async () => { throw Error('dummy rejection'); } });
+  h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
   await h.button('Create account').props.onPress();
   h.render();
   assert.equal(h.calls.profile.length, 0);
   assert.equal(h.calls.firestore.length, 0);
   assert.equal(h.calls.navigation.length, 0);
-  assert.deepEqual(h.calls.alerts, ['Sign up failed dummy rejection']);
+  assert.match(text(h.tree), /couldn.t create your account/i);
+  assert.deepEqual(h.calls.alerts, []);
+  assert.deepEqual(h.calls.diagnostics, []);
   assert.equal(h.button('Create account').props.disabled, false);
+});
+
+for (const [screen, label] of [['screens/AuthLoginScreen.js', 'Log in'], ['screens/SignUpScreen.js', 'Create account']]) {
+  test(label + ' validates missing credentials before requesting authentication and clears feedback on edit', async () => {
+    for (const [email, password, message] of [
+      ['', '', 'Enter your email and password.'],
+      ['', 'dummy-password', 'Enter your email address.'],
+      ['dummy@example.test', '', 'Enter your password.'],
+    ]) {
+      const h = authHost(screen); await h.flush();
+      h.fill('Email', email); h.fill('Password', password);
+      await h.button(label).props.onPress(); h.render();
+      const feedback = nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert');
+      assert.equal(feedback.length, 1);
+      assert.equal(text(feedback[0]), message);
+      assert.equal(feedback[0].props.accessibilityLiveRegion, 'polite');
+      assert.equal(feedback[0].props.allowFontScaling, true);
+      assert.equal(h.calls.auth.length, 0);
+      assert.equal(h.calls.profile.length, 0); assert.equal(h.calls.firestore.length, 0);
+      assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
+      assert.equal(h.button(label).props.disabled, false);
+      h.fill('Email', 'changed@example.test');
+      assert.equal(nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert').length, 0);
+    }
+  });
+  test(label + ' discards a late error for credentials edited during the pending request', async () => {
+    const pending = deferred();
+    const h = authHost(screen, { signIn: () => pending.promise, createUser: () => pending.promise });
+    await h.flush(); h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const completion = h.button(label).props.onPress(); await h.flush();
+    h.fill('Password', 'changed-password');
+    pending.reject(Object.assign(Error('dummy private diagnostic'), { code: 'auth/invalid-credential' }));
+    await completion; h.render();
+    assert.equal(nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert').length, 0);
+    assert.equal(h.button(label).props.disabled, false);
+    assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
+  });
+  test(label + ' clears previous errors when leaving the form and ignores a rejection after returning', async () => {
+    const pending = deferred();
+    const h = authHost(screen, { signIn: () => pending.promise, createUser: () => pending.promise });
+    await h.flush(); h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    const completion = h.button(label).props.onPress(); await h.flush();
+    h.focus(false); h.focus(true);
+    pending.reject(Object.assign(Error('dummy private diagnostic'), { code: 'auth/network-request-failed' }));
+    await completion; h.render();
+    assert.equal(nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert').length, 0);
+    assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
+  });
+}
+
+test('login maps provider failures to readable feedback without exposing account diagnostics', async () => {
+  for (const [code, expected] of [
+    ['auth/invalid-credential', 'The email and password don’t match. Check them and try again.'],
+    ['auth/wrong-password', 'The email and password don’t match. Check them and try again.'],
+    ['auth/user-not-found', 'The email and password don’t match. Check them and try again.'],
+    ['auth/invalid-email', 'Enter a valid email address.'],
+    ['auth/too-many-requests', 'Too many attempts. Please wait a moment and try again.'],
+    ['auth/network-request-failed', 'Couldn’t connect. Check your internet connection and try again.'],
+    ['auth/future-error', 'We couldn’t log you in. Please try again.'],
+  ]) {
+    const h = authHost('screens/AuthLoginScreen.js', { signIn: async () => { throw Object.assign(Error('dummy-sensitive-token'), { code }); } });
+    await h.flush(); h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    await h.button('Log in').props.onPress(); h.render();
+    const feedback = nodes(h.tree, 'Text').find(node => node.props.accessibilityRole === 'alert');
+    assert.equal(text(feedback), expected);
+    assert.doesNotMatch(text(h.tree), /auth\/|dummy-sensitive-token|Firebase/);
+    assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
+  }
+});
+
+test('account forms trim email whitespace and preserve the password exactly', async () => {
+  for (const [screen, label] of [['screens/AuthLoginScreen.js', 'Log in'], ['screens/SignUpScreen.js', 'Create account']]) {
+    const h = authHost(screen); await h.flush();
+    h.fill('Email', '  dummy@example.test  '); h.fill('Password', '  dummy password  ');
+    await h.button(label).props.onPress(); h.render();
+    assert.equal(h.calls.auth.length, 1);
+    assert.deepEqual(h.calls.auth[0].slice(2), ['dummy@example.test', '  dummy password  ']);
+    assert.equal(nodes(h.tree, 'AuthStage')[0].props.authenticatedUser, h.user);
+  }
+});
+
+test('signup maps registration failures without leaking the provider exception', async () => {
+  for (const [code, expected] of [
+    ['auth/email-already-in-use', 'An account already uses this email. Try logging in.'],
+    ['auth/weak-password', 'Choose a stronger password and try again.'],
+    ['auth/missing-password', 'Enter your password.'],
+    ['auth/invalid-email', 'Enter a valid email address.'],
+    ['auth/network-request-failed', 'Couldn’t connect. Check your internet connection and try again.'],
+    ['auth/future-error', 'We couldn’t create your account. Please try again.'],
+  ]) {
+    const h = authHost('screens/SignUpScreen.js', { createUser: async () => { throw Object.assign(Error('dummy-sensitive-token'), { code }); } });
+    h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+    await h.button('Create account').props.onPress(); h.render();
+    const feedback = nodes(h.tree, 'Text').find(node => node.props.accessibilityRole === 'alert');
+    assert.equal(text(feedback), expected);
+    assert.doesNotMatch(text(h.tree), /auth\/|dummy-sensitive-token|Firebase/);
+    assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
+  }
+});
+
+test('signup profile errors do not appear for another signed-in account', async () => {
+  const pending = deferred();
+  const h = authHost('screens/SignUpScreen.js', { setDoc: () => pending.promise });
+  h.fill('Email', 'dummy@example.test'); h.fill('Password', 'dummy-password');
+  const completion = h.button('Create account').props.onPress(); await h.flush();
+  h.auth.currentUser = { uid: 'another-account' };
+  pending.reject(Error('dummy private diagnostic')); await completion; h.render();
+  assert.equal(nodes(h.tree, 'Text').filter(node => node.props.accessibilityRole === 'alert').length, 0);
+  assert.deepEqual(h.calls.alerts, []); assert.deepEqual(h.calls.diagnostics, []);
 });
 
 test('the account stage keeps the form scrollable and Back accessible above the curtain overlay', () => {
@@ -313,7 +630,8 @@ test('the account stage keeps the form scrollable and Back accessible above the 
     const curtainEdge = parseFloat(panelStyle.width) / 100 * 320 - Math.abs(panelStyle.transform[0].translateX.config.outputRange[1]);
     const columnEdge = (320 - parseFloat(scroll.props.style.width) / 100 * 320) / 2;
     assert.ok(columnEdge >= curtainEdge + 8, 'the narrow form column remains clear of the opened curtains');
-    const layers = h.tree.props.children.flat(Infinity).map(node => node?.type);
+    const layers = h.tree.props.children.flat(Infinity)
+      .map(node => nodes(node, 'WelcomeBackground').length ? 'WelcomeBackground' : node?.type);
     assert.ok(layers.indexOf('WelcomeMoon') < layers.indexOf('KeyboardAvoidingView'));
     assert.ok(layers.indexOf('KeyboardAvoidingView') < layers.indexOf('WelcomeBackground'));
     assert.ok(layers.indexOf('WelcomeBackground') < layers.indexOf('Pressable'), 'Back stays reachable while the curtain moves');

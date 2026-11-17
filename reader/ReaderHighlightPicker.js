@@ -5,13 +5,13 @@ import { HIGHLIGHT_PALETTE } from "./readerHighlights";
 import { THEMES } from "./readerConstants";
 
 export default function ReaderHighlightPicker({
-  visible, snapshot, colorId = "yellow", theme = THEMES.paper,
+  visible, snapshot, colorId = "yellow", theme = THEMES.night,
   saving = false, error, onColor, onSave, onClose, onDismiss,
   actionLabel = "Save", notice, onRetry,
 }) {
   const heading = useRef(null);
   const insets = useSafeAreaInsets();
-  const themeId = Object.keys(THEMES).find(id => THEMES[id] === theme) || "paper";
+  const themeId = Object.keys(THEMES).find(id => THEMES[id] === theme) || "night";
   const focusHeading = () => {
     const handle = findNodeHandle(heading.current);
     if (handle != null) AccessibilityInfo.setAccessibilityFocus(handle);

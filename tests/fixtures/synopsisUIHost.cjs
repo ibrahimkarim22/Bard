@@ -54,12 +54,19 @@ function synopsisUIHost(options = {}) {
       return storage[index].value;
     },
     useCallback(fn, deps) { return React.useMemo(() => fn, deps); },
+    useLayoutEffect(fn, deps) { return React.useEffect(fn, deps); },
     useEffect(fn, deps) {
       const index = currentFrame.cursor++, storage = currentFrame.slots;
       if (!same(storage[index], deps)) effects.push(() => { storage[index] = deps; const cleanup = fn(); if (typeof cleanup === 'function') cleanups.push(cleanup); });
     },
   };
   const native = Object.fromEntries(['View', 'Text', 'Pressable', 'ScrollView', 'StatusBar', 'ActivityIndicator', 'TextInput', 'Image'].map(name => [name, name]));
+  native.FlatList = props => {
+    if (props.ref && !props.ref.current) props.ref.current = { scrollToOffset: value => scrolls.push(value) };
+    return { type: 'FlatList', props: { ...props, children: [props.ListHeaderComponent,
+      ...props.data.map((item, index) => props.renderItem({ item, index })),
+      !props.data.length && props.ListEmptyComponent] } };
+  };
   native.StyleSheet = { create: value => value, hairlineWidth: 1, flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)) };
   native.Platform = { OS: options.platform || 'android', select: value => value[options.platform || 'android'] || value.default };
   native.Keyboard = { dismiss: () => calls.push(['keyboard-dismiss']) };
