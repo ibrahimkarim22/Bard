@@ -4,7 +4,7 @@ import { THEMES } from './readerConstants';
 import { createHighlightAction } from './readerHighlightAction';
 
 export default function ReaderHighlightControl({ mode = 'list', count = 0, disabled = false,
-  theme = THEMES.paper, capture, getScope, onPicker, onList, onError, triggerRef }) {
+  theme = THEMES.night, capture, getScope, onPicker, onList, onError, triggerRef }) {
   const { fontScale = 1, width: viewportWidth } = useWindowDimensions();
   const latest = useRef(null);
   const lifecycle = useRef({ mounted: true });

@@ -33,6 +33,17 @@ function texts(tree) {
 }
 const snapshot = { documentId: 'doc', selection: { exact: 'CUE.\n  Café\u00a0and grief,\n\n' } };
 
+test('picker defaults and custom theme swatch fallback use Night colors', () => {
+  const Picker = load();
+  for (const theme of [undefined, { ...THEMES.night }]) {
+    const tree = Picker({ visible: true, snapshot, theme });
+    const panel = nodes(tree, 'View').find(node => node.props.accessibilityViewIsModal);
+    assert.equal(Object.assign({}, ...panel.props.style).backgroundColor, '#1b1820');
+    const yellow = nodes(tree, 'Pressable').find(node => node.props.accessibilityLabel === 'Yellow');
+    assert.equal(nodes(yellow, 'View')[0].props.style[1].backgroundColor, '#50472A');
+  }
+});
+
 test('picker actions and selected choice use neutral tokens in all themes while retaining original color swatches', () => {
   const Picker = load();
   const palette = require('../../reader/readerHighlights').HIGHLIGHT_PALETTE;

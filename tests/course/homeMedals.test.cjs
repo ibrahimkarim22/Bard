@@ -10,9 +10,10 @@ const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [
 const text = tree => typeof tree === 'string' || typeof tree === 'number' ? String(tree) : !tree || typeof tree !== 'object'
   ? '' : (tree.props?.children || []).flat(Infinity).map(text).join(' ');
 
-function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width: 411, fontScale: 1 } } = {}) {
-  const route = { key: 'home-fixture', params: { tab } }, calls = [], writes = [], scrolls = [], slots = [];
-  const auth = { currentUser: { uid: 'synthetic-owner', displayName: 'Synthetic reader', photoURL: 'https://example.test/reader-avatar.png' } };
+function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width: 411, fontScale: 1 }, platform = 'android', fabric = true } = {}) {
+  const route = { key: 'home-fixture', params: { tab } }, calls = [], writes = [], scrolls = [], slots = [], photos = [];
+  const auth = { currentUser: { uid: 'synthetic-owner', displayName: 'Synthetic reader', email: 'reader@example.test', photoURL: 'https://example.test/reader-avatar.png' } };
+  const arrivals = [], curtain = { active: false, phase: null, id: null, markHomeReady: receipt => arrivals.push(receipt) };
   let cursor = 0, effects = [], dirty = false, drawerStatus = 'closed';
   let progress = { owner: { uid: auth.currentUser.uid, generation: 0 }, ...(initialProgress || { status: 'ready', completedLevel: level }) };
   const equal = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
@@ -27,34 +28,42 @@ function host({ tab, level = 1, initialProgress, catalogue, dimensions = { width
   const plays = catalogue || [{ id: 'midsummer', name: 'Midsummer', difficulty: 1, mainImage: 21, medalImage: 11 }, { id: 'henry-viii', name: 'Henry VIII', difficulty: 39, mainImage: 22, medalImage: 12 }];
   const native = Object.fromEntries(['View', 'Text', 'Pressable', 'ScrollView', 'Image', 'Modal', 'StatusBar', 'ActivityIndicator'].map(s => [s, s]));
   native.ScrollView = props => { if (props.ref) props.ref.current = { scrollTo: options => scrolls.push(options) }; return { type: 'ScrollView', props }; };
-  Object.assign(native, { useWindowDimensions: () => dimensions, Platform: { OS: 'android' }, StyleSheet: { create: value => value } });
+  Object.assign(native, { useWindowDimensions: () => dimensions, Platform: { OS: platform }, StyleSheet: { create: value => value } });
   const deps = {
     react: React, 'react-native': native,
     '@react-navigation/native': { useIsFocused: () => true },
     '@react-navigation/drawer': { useDrawerStatus: () => drawerStatus },
+    './HomeArrivalCurtain': { useAuthCurtainTransition: () => curtain },
     '@fortawesome/react-native-fontawesome': { FontAwesomeIcon: 'Icon' }, '@fortawesome/free-solid-svg-icons': {},
     'firebase/auth': { updateProfile: () => writes.push('profile') }, 'firebase/firestore': { doc() {}, updateDoc: () => writes.push('document') },
     '../course/AccountCourseProgress': { useAccountCourseProgress: () => progress, retryAccountProgress() {} },
     '../course/CourseProgressNotice': { CourseProgressNotice: 'CourseProgressNotice' },
     '../course/MedalsCollection': { __esModule: true, default: 'MedalsCollection' },
-    'expo-image-manipulator': {}, 'expo-image-picker': {}, 'expo-media-library': {},
+    'expo-image-manipulator': {},
+    'expo-image-picker': {
+      async requestCameraPermissionsAsync() { photos.push('camera-permission'); return { status: 'granted' }; },
+      async requestMediaLibraryPermissionsAsync() { photos.push('library-permission'); return { status: 'granted' }; },
+      async launchCameraAsync() { photos.push('camera-picker'); return { canceled: true, assets: [] }; },
+      async launchImageLibraryAsync() { photos.push('library-picker'); return { canceled: true, assets: [] }; },
+    }, 'expo-media-library': {},
     '../firebaseConfig': { FIREBASE_AUTH: auth, FIRESTORE_DB: {} },
     '../shared/localPlayService': { PLAYS: plays },
     '../shared/EditorialUI': { EditorialText: props => ({ type: 'Text', props }) },
+    '../shared/PosterImage': { __esModule: true, default: props => ({ type: 'PosterImage', props: { ...props, children: [{ type: 'Image', props }] } }) },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 24, bottom: 0, left: 0, right: 0 }) },
   };
   const file = path.join(root, 'screens/HomeScreen.js');
   const code = babel.transformFileSync(file, { babelrc: false, configFile: false,
     plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
   const module = { exports: {} };
-  vm.runInThisContext('(function(require,module,exports,React){' + code + '\n})', { filename: file })(name => {
+  vm.runInThisContext('(function(require,module,exports,React,globalThis){' + code + '\n})', { filename: file })(name => {
     if (Object.hasOwn(deps, name)) return deps[name];
     return name.startsWith('.') ? require(path.resolve(path.dirname(file), name)) : require(name);
-  }, module, module.exports, React);
+  }, module, module.exports, React, { nativeFabricUIManager: fabric ? {} : undefined });
   const navigation = { navigate: (...args) => calls.push(args), openDrawer: () => calls.push(['openDrawer']),
     setParams: next => { route.params = { ...route.params, ...next }; dirty = true; } };
   const h = {
-    calls, writes, scrolls, route, plays,
+    calls, writes, scrolls, route, plays, arrivals, curtain, photos,
     render() { let tree, passes = 0; do { assert.ok(++passes < 20); cursor = 0; effects = []; dirty = false; tree = module.exports.default({ navigation, route }); effects.forEach(run => run()); } while (dirty); return tree; },
     renderBeforeEffects() { cursor = 0; effects = []; dirty = false; return module.exports.default({ navigation, route }); },
     selectTab(label) { const button = nodes(h.render(), 'Pressable').find(n => text(n) === label); assert.ok(button, label); button.props.onPress(); return h.render(); },
@@ -89,11 +98,12 @@ const flatStyle = style => Object.assign({}, ...[typeof style === 'function' ? s
 test('Home keeps the profile above the confirmed next play and retains one Continue action', () => {
   const h = host({ catalogue: editorialPlays, level: 1 });
   const tree = h.render(), copy = text(tree);
-  assert.match(copy, /Continue your course/);
+  assert.doesNotMatch(copy, /Continue your course/);
   assert.match(copy, /Romeo and Juliet/);
   assert.match(copy, /1 of 3 plays completed/);
-  assert.ok(copy.indexOf('Synthetic reader') < copy.indexOf('Continue your course'), 'the profile appears at the top');
+  assert.ok(copy.indexOf('Synthetic reader') < copy.indexOf('Romeo and Juliet'), 'the profile appears above the next play');
   assert.ok(nodes(tree, 'Image').some(node => node.props.source === 22), 'the next play uses its original catalogue artwork');
+  assert.ok(nodes(tree, 'PosterImage').some(node => node.props.source === 22), 'Home uses the shared loading and failure lifecycle for play artwork');
   const continuation = nodes(tree, 'Pressable').filter(node => text(node).trim() === 'Continue');
   assert.equal(continuation.length, 1);
   continuation[0].props.onPress();
@@ -113,32 +123,88 @@ test('Home profile and all three tabs stay above the scrolling content', () => {
     assert.deepEqual(nodes(tree, 'Pressable').filter(node => node.props.accessibilityRole === 'tab')
       .map(node => node.props.accessibilityLabel), ['Overview', 'Medals', 'Certificate']);
     assert.equal(nodes(scroll, 'Pressable').filter(node => node.props.accessibilityRole === 'tab').length, 0);
-    assert.ok(buttonNamed(tree, 'Update profile picture'));
-    assert.equal(buttonNamed(scroll, 'Update profile picture'), undefined);
+    assert.ok(buttonNamed(tree, 'Edit profile'));
+    assert.equal(buttonNamed(scroll, 'Edit profile'), undefined);
     const menu = buttonNamed(tree, 'Open navigation menu');
     assert.ok(menu);
     menu.props.onPress();
     assert.deepEqual(h.calls, [['openDrawer']]);
     assert.ok(tree.props.edges.includes('top'), 'Home owns the inset when its native header is hidden');
-    assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
+    assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'light-content');
     assert.deepEqual(h.writes, []);
   }
 });
 
-test('Home keeps dark status icons on its shared ivory surface with the drawer open or closed', () => {
+test('Edit profile replaces the avatar shortcut and opens the independent account screen', () => {
+  const h = host();
+  let tree = h.render();
+  assert.equal(buttonNamed(tree, 'Update profile picture'), undefined);
+  const edit = buttonNamed(tree, 'Edit profile');
+  assert.ok(edit);
+  assert.equal(nodes(tree, 'Modal').length, 0);
+  assert.doesNotMatch(text(nodes(tree, 'ScrollView')[0]), /reader@example\.test/);
+  edit.props.onPress();
+  assert.deepEqual(h.calls, [['Profile']]);
+  assert.deepEqual(h.writes, []);
+});
+
+test('a retired Edit profile action cannot open a different account profile', () => {
+  const h = host();
+  const edit = buttonNamed(h.render(), 'Edit profile');
+  h.setUser({ uid: 'other-owner', displayName: 'Other reader', email: 'other@example.test' });
+  h.setProgress({ status: 'ready', completedLevel: 0 });
+  const firstNewFrame = h.renderBeforeEffects();
+  assert.doesNotMatch(text(firstNewFrame), /reader@example\.test/);
+  edit.props.onPress();
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.writes, []);
+});
+
+test('Edit profile remains reachable when account progress cannot load', () => {
+  const h = host({ initialProgress: { status: 'error', completedLevel: 0 } });
+  buttonNamed(h.render(), 'Edit profile').props.onPress();
+  assert.deepEqual(h.calls, [['Profile']]);
+});
+
+test('Home reports settled native layouts and yields its status bar to the continuous curtain', () => {
+  const h = host({ initialProgress: { status: 'loading', completedLevel: 0 } });
+  Object.assign(h.curtain, { active: true, phase: 'covered', id: 'current-flight' });
+  const layout = { nativeEvent: { layout: { width: 411, height: 800 } } };
+  let tree = h.render();
+  assert.equal(nodes(tree, 'StatusBar').length, 0, 'no ivory system-bar entry can flash through the cover');
+  tree.props.onLayout(layout);
+  assert.equal(h.arrivals.length, 0, 'loading layout cannot release the curtain');
+  h.setProgress({ status: 'ready', completedLevel: 1 }); tree = h.render();
+  assert.equal(tree.props.key, 'ready');
+  tree.props.onLayout(layout);
+  assert.deepEqual(h.arrivals, [{ id: 'current-flight', uid: 'synthetic-owner', status: 'ready' }]);
+  tree.props.onLayout({ nativeEvent: { layout: { width: 0, height: 0 } } });
+  assert.equal(h.arrivals.length, 1);
+  h.curtain.active = false; h.curtain.id = null;
+  const settled = h.render();
+  assert.equal(settled.props.key, tree.props.key, 'removing the overlay does not remount Home or its images');
+  assert.equal(nodes(settled, 'StatusBar')[0].props.barStyle, 'light-content');
+  h.curtain.active = true; h.curtain.id = 'later-flight';
+  h.setProgress({ status: 'error', completedLevel: 0 }); tree = h.render();
+  assert.equal(tree.props.key, 'error', 'the error branch has its own native layout receipt');
+  tree.props.onLayout(layout);
+  assert.deepEqual(h.arrivals.at(-1), { id: 'later-flight', uid: 'synthetic-owner', status: 'error' });
+});
+
+test('Home keeps light status icons and a consistent dark surface with the drawer open or closed', () => {
   const h = host({ catalogue: editorialPlays });
-  const lightBackground = require('../../shared/editorialTheme').EDITORIAL_COLORS.background;
+  const sharedBackground = require('../../shared/editorialTheme').EDITORIAL_COLORS.background;
   let tree = h.render();
   const homeBackground = flatStyle(tree.props.style).backgroundColor;
-  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
-  assert.equal(homeBackground, lightBackground);
+  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'light-content');
+  assert.equal(homeBackground, sharedBackground);
 
   h.setDrawerStatus('open');
   tree = h.render();
   const status = nodes(tree, 'StatusBar')[0];
-  assert.equal(status.props.barStyle, 'dark-content');
-  assert.equal(status.props.backgroundColor, lightBackground);
-  assert.equal(flatStyle(tree.props.style).backgroundColor, lightBackground);
+  assert.equal(status.props.barStyle, 'light-content');
+  assert.equal(status.props.backgroundColor, homeBackground);
+  assert.equal(flatStyle(tree.props.style).backgroundColor, homeBackground);
   const scroll = nodes(tree, 'ScrollView')[0];
   assert.equal(flatStyle(scroll.props.style).backgroundColor, homeBackground);
   assert.match(text(tree), /Synthetic reader/);
@@ -148,7 +214,7 @@ test('Home keeps dark status icons on its shared ivory surface with the drawer o
 
   h.setDrawerStatus('closed');
   tree = h.render();
-  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'dark-content');
+  assert.equal(nodes(tree, 'StatusBar')[0].props.barStyle, 'light-content');
   assert.equal(nodes(tree, 'StatusBar')[0].props.backgroundColor, homeBackground);
   assert.equal(flatStyle(tree.props.style).backgroundColor, homeBackground);
   assert.deepEqual(h.calls, []);
@@ -175,8 +241,45 @@ test('Home bounds the bundled artwork explicitly so its intrinsic image height c
   const artwork = nodes(h.render(), 'Image').find(node => node.props.source === 22);
   assert.ok(artwork);
   const style = flatStyle(artwork.props.style);
-  assert.ok(Number.isFinite(style.height) && style.height > 0 && style.height <= 260,
+  assert.ok(Number.isFinite(style.height) && style.height > 0 && style.height <= 420,
     'a source image can have a multi-thousand-point intrinsic height; the Home frame must override it');
+});
+
+test('Home extends the poster beneath its copy with a decorative native or web fade and flexible card height', () => {
+  for (const platform of ['android', 'web']) {
+    for (const dimensions of [{ width: 411, fontScale: 1 }, { width: 320, fontScale: 1.5 }]) {
+      const h = host({ catalogue: editorialPlays, platform, dimensions });
+      const tree = h.render();
+      const card = nodes(tree, 'View').find(node => node.props.testID === 'home-course-card');
+      const copy = nodes(tree, 'View').find(node => node.props.testID === 'home-course-copy');
+      const fade = nodes(tree, 'View').find(node => node.props.testID === 'home-course-fade');
+      const image = nodes(tree, 'Image').find(node => node.props.source === 22);
+      assert.ok(card && copy && fade && image);
+      assert.equal(flatStyle(card.props.style).height, undefined, 'large text controls the card height');
+      assert.equal(flatStyle(image.props.style).position, 'absolute');
+      assert.ok(flatStyle(image.props.style).height > flatStyle(copy.props.style).paddingTop, 'art continues into the play details');
+      assert.equal(fade.props.pointerEvents, 'none');
+      assert.equal(fade.props.accessible, false);
+      const style = flatStyle(fade.props.style);
+      const gradient = style[platform === 'web' ? 'backgroundImage' : 'experimental_backgroundImage'];
+      assert.match(gradient, /^linear-gradient\(to bottom,/);
+      assert.ok(gradient.endsWith(flatStyle(card.props.style).backgroundColor + ' 100%)'));
+      assert.equal(style.height, flatStyle(image.props.style).height);
+      buttonNamed(tree, 'Continue').props.onPress(); assert.deepEqual(h.calls, [['Course']]);
+    }
+  }
+});
+
+test('Home keeps opaque readable play details when native gradients are unavailable', () => {
+  const h = host({ catalogue: editorialPlays, fabric: false });
+  const tree = h.render();
+  const card = nodes(tree, 'View').find(node => node.props.testID === 'home-course-card');
+  const copy = nodes(tree, 'View').find(node => node.props.testID === 'home-course-copy');
+  const image = nodes(tree, 'Image').find(node => node.props.source === 22);
+  assert.equal(nodes(tree, 'View').find(node => node.props.testID === 'home-course-fade'), undefined);
+  assert.ok(flatStyle(copy.props.style).paddingTop >= flatStyle(image.props.style).height);
+  assert.equal(flatStyle(card.props.style).height, undefined);
+  assert.ok(buttonNamed(tree, 'Continue'));
 });
 
 test('a missing next difficulty shows an honest course fallback without suggesting or unlocking a different play', () => {
@@ -197,7 +300,7 @@ test('a missing next difficulty shows an honest course fallback without suggesti
 test('Home keeps certificate and profile controls accessible with flexible targets at enlarged text size', () => {
   const h = host({ catalogue: editorialPlays, dimensions: { width: 320, fontScale: 1.5 } });
   let tree = h.render();
-  assert.ok(buttonNamed(tree, 'Update profile picture'));
+  assert.ok(buttonNamed(tree, 'Edit profile'));
   assert.ok(buttonNamed(tree, 'Log out'));
   for (const node of nodes(tree, 'Pressable')) {
     const style = flatStyle(node.props.style);
@@ -240,7 +343,9 @@ test('Home never renders medals from a non-ready account snapshot even when it c
     assert.deepEqual(h.writes, []);
     const menu = buttonNamed(tree, 'Open navigation menu');
     assert.ok(menu, `${status} keeps navigation available without exposing account content`);
-    assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'dark-content');
+    assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'light-content');
+    assert.equal(notice.props.embedded, true);
+    assert.equal(notice.props.colors.background, flatStyle(tree.props.style).backgroundColor);
     menu.props.onPress();
     assert.deepEqual(h.calls, [['openDrawer']]);
     assert.doesNotMatch(text(tree), /Synthetic reader/);

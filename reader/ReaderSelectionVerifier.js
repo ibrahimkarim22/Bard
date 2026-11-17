@@ -8,7 +8,7 @@ function rejection(code) {
   return Object.assign(new Error("Selection verification: " + code), { code });
 }
 
-export default function ReaderSelectionVerifier({ surfaceRef, documentId, theme = THEMES.paper }) {
+export default function ReaderSelectionVerifier({ surfaceRef, documentId, theme = THEMES.night }) {
   // Metro removes the development branch from release behavior. In particular,
   // production does not install a global, focus listener, or native control.
   if (!__DEV__) return null;

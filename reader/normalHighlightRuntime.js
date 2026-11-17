@@ -20,6 +20,7 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
       || configuration.storageMode === 'legacy-v1' && (configuration.enabled || configuration.migrationApproved)) throw fail('SYNC_ACTIVATION_REQUIRED');
   const storageMode = configuration.storageMode, enabled = configuration.enabled;
   const listeners = new Set(), accounts = new Map(), rawViews = new Map(), workViews = new Map();
+  const blockedAccounts = new Set(), permanentlyBlockedAccounts = new Set(), purges = new Map();
   let uid = null, generation = 0, disposed = false, coordinator = null, manager, backendPromise = null;
   let snapshot = frozen({ uid, ownerGeneration: generation, storageMode, enabled, running: false, pending: 0, error: null, discoveryLoading: false, discoveryError: null, works: frozen([]) });
   function publish() {
@@ -27,7 +28,7 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
     snapshot = frozen({ ...snapshot, ...state, uid, ownerGeneration: generation, storageMode, enabled });
     for (const listener of listeners) { try { listener(); } catch (_) {} }
   }
-  const currentOwner = (owner, epoch) => !disposed && uid === owner && generation === epoch;
+  const currentOwner = (owner, epoch) => !disposed && !blockedAccounts.has(owner) && uid === owner && generation === epoch;
   function guardFor(owner, options) {
     const epoch = generation;
     return () => currentOwner(owner, epoch) && (!options?.isCurrent || options.isCurrent());
@@ -56,7 +57,8 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
   if (storageMode === 'legacy-v1') {
     // In this branch no sync store, coordinator, Firebase, or migration module
     // is initialized. Existing normal v1 bytes/behavior remain authoritative.
-    manager = createHighlightStoreManager(storage, storeOptions);
+    core = createHighlightStoreManager(storage, storeOptions);
+    manager = { forWork: core.forWork, forAccount: core.forAccount, forStoredWork: core.forStoredWork };
   } else {
     core = require('./highlightSyncStore').createHighlightSyncStoreManagerForNamespace(storage, {
       ...storeOptions, namespace: ACCOUNT_NAMESPACE, legacyPrefixFor: prefixFor, migrateLegacy: configuration.migrationApproved,
@@ -85,8 +87,9 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
     }
     function forAccount({ uid: owner }) {
       prefixFor(owner, 'x');
+      if (blockedAccounts.has(owner)) throw fail('ACCOUNT_DELETION_BLOCKED');
       if (accounts.has(owner)) return accounts.get(owner).store;
-      const view = { snapshot: emptyAccount(), listeners: new Set(), tail: Promise.resolve(), scheduled: false, store: null };
+      const view = { owner, snapshot: emptyAccount(), listeners: new Set(), tail: Promise.resolve(), scheduled: false, store: null };
       const publishView = () => { for (const listener of view.listeners) { try { listener(); } catch (_) {} } };
       const enqueue = run => { const task = view.tail.then(run); view.tail = task.catch(() => {}); return task; };
       async function refresh(options) {
@@ -140,10 +143,11 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
     }
     function forStoredWork({ uid: owner, workKey }) {
       prefixFor(owner, 'x');
+      if (blockedAccounts.has(owner)) throw fail('ACCOUNT_DELETION_BLOCKED');
       if (typeof workKey !== 'string' || workKey.includes('/')) throw fail('INVALID_HIGHLIGHT');
       const scopeKey = JSON.stringify([owner, workKey]);
       if (rawViews.has(scopeKey)) return rawViews.get(scopeKey).store;
-      const view = { snapshot: emptyRaw(), raw: new Map(), listeners: new Set(), tail: Promise.resolve(), scheduled: false };
+      const view = { owner, snapshot: emptyRaw(), raw: new Map(), listeners: new Set(), tail: Promise.resolve(), scheduled: false };
       const publishView = () => { for (const listener of view.listeners) { try { listener(); } catch (_) {} } };
       const enqueue = run => { const task = view.tail.then(run); view.tail = task.catch(() => {}); return task; };
       async function refresh(options) {
@@ -211,6 +215,7 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
   async function setOwner(next) {
     if (disposed) throw fail('CANCELLED');
     if (next !== null) prefixFor(next, 'x');
+    if (blockedAccounts.has(next)) throw fail('ACCOUNT_DELETION_BLOCKED');
     if (uid === next) return coordinator?.setOwner(next);
     uid = next; generation++;
     for (const view of [...accounts.values(), ...rawViews.values()]) view.clear();
@@ -227,8 +232,62 @@ function createNormalHighlightRuntime({ storage, configuration = DEFAULT_CONFIGU
     check(guard);
     return store;
   }
+  function blockAccount(owner) {
+    prefixFor(owner, 'x');
+    if (blockedAccounts.has(owner)) return;
+    blockedAccounts.add(owner);
+    if (uid === owner) {
+      uid = null; generation++;
+      // setOwner retires listeners and local acknowledgements synchronously;
+      // deletion never waits for an outstanding network submission to settle.
+      coordinator?.setOwner(null)?.catch(() => {});
+    }
+    for (const view of [...accounts.values(), ...rawViews.values()]) if (view.owner === owner) view.clear();
+    (core || manager).blockAccount(owner);
+    publish();
+  }
+  async function drainLocalAccount(owner) {
+    await Promise.all([(core || manager).drainAccount(owner),
+      ...[...accounts.values(), ...rawViews.values()].filter(view => view.owner === owner).map(view => view.tail)]);
+  }
+  function clearAccountViews(owner) {
+    for (const map of [accounts, rawViews]) for (const [key, view] of map) if (view.owner === owner) { view.clear(); map.delete(key); }
+    for (const key of workViews.keys()) if (JSON.parse(key)[0] === owner) workViews.delete(key);
+  }
+  function accountKey(key, owner) {
+    const encoded = encodeURIComponent(owner);
+    return key.startsWith('@bard/reader-highlights:v1/' + encoded + '/')
+      || ['v2', 'legacy', 'retired', 'recovery'].some(kind => key.startsWith(ACCOUNT_NAMESPACE + '/' + kind + '/' + encoded + '/'))
+      || key === ACCOUNT_NAMESPACE + '/catalogue/' + encoded;
+  }
+  async function purgeAccount(owner) {
+    blockAccount(owner); permanentlyBlockedAccounts.add(owner);
+    if (purges.has(owner)) return purges.get(owner);
+    const task = (async () => {
+      await drainLocalAccount(owner);
+      (core || manager).clearAccount(owner); clearAccountViews(owner);
+      if (!storage || typeof storage.getAllKeys !== 'function' || typeof storage.removeItem !== 'function') throw fail('ACCOUNT_DELETION_CLEANUP_FAILED');
+      const keys = await storage.getAllKeys();
+      if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string')) throw fail('ACCOUNT_DELETION_CLEANUP_FAILED');
+      for (const key of new Set(keys)) if (accountKey(key, owner)) await storage.removeItem(key);
+      const remaining = await storage.getAllKeys();
+      if (!Array.isArray(remaining) || remaining.some(key => typeof key !== 'string' || accountKey(key, owner))) throw fail('ACCOUNT_DELETION_CLEANUP_FAILED');
+      return true;
+    })().catch(error => { if (error.code === 'ACCOUNT_DELETION_CLEANUP_FAILED') throw error; throw Object.assign(fail('ACCOUNT_DELETION_CLEANUP_FAILED'), { cause: error }); });
+    purges.set(owner, task);
+    try { return await task; } finally { if (purges.get(owner) === task) purges.delete(owner); }
+  }
+  async function unblockAccount(owner) {
+    prefixFor(owner, 'x');
+    if (permanentlyBlockedAccounts.has(owner)) throw fail('ACCOUNT_DELETION_PERMANENT');
+    if (!blockedAccounts.has(owner)) return;
+    await drainLocalAccount(owner);
+    await (core || manager).unblockAccount(owner, () => !permanentlyBlockedAccounts.has(owner));
+    if (permanentlyBlockedAccounts.has(owner)) throw fail('ACCOUNT_DELETION_PERMANENT');
+    clearAccountViews(owner); blockedAccounts.delete(owner);
+  }
   function dispose() { if (disposed) return; disposed = true; uid = null; generation++; coordinator?.dispose(); for (const view of [...accounts.values(), ...rawViews.values()]) view.clear(); publish(); listeners.clear(); }
-  return { manager, coordinator, storageMode, enabled, setOwner, openWork,
+  return { manager, coordinator, storageMode, enabled, setOwner, openWork, blockAccount, purgeAccount, unblockAccount,
     refreshReadOnly: () => coordinator?.refreshReadOnly?.() || Promise.resolve(),
     retry: () => coordinator?.retry() || Promise.resolve(),
     foreground: () => coordinator?.foreground() || Promise.resolve(),

@@ -5,6 +5,7 @@ import {
 } from "@react-navigation/drawer";
 import { RootScreen } from "../screens/RootScreen";
 import HomeScreen from "../screens/HomeScreen";
+import ProfileScreen from "../screens/ProfileScreen";
 import SignUpScreen from "../screens/SignUpScreen";
 import LoginScreen from "../screens/AuthLoginScreen";
 import QuizScreen from "../screens/QuizScreen";
@@ -136,7 +137,7 @@ const CustomDrawerContent = (props) => {
   const focusedRoute = props.state.routes[props.state.index]?.name;
   const routeNames = props.state.routeNames;
   const availableItems = drawerItems.filter((item) =>
-    routeNames.includes(item.name)
+    routeNames.includes(item.name) && !(item.account && props.signedIn)
   );
   const primaryItems = availableItems.filter((item) => !item.account);
   const accountItems = availableItems.filter((item) => item.account);
@@ -201,7 +202,7 @@ const Main = () => {
   return (
     <View style={styles.drawerContainer}>
       <Drawer.Navigator
-        drawerContent={CustomDrawerContent}
+        drawerContent={props => <CustomDrawerContent {...props} signedIn={!!user} />}
         screenOptions={{
           drawerStyle: styles.drawerShell,
           sceneContainerStyle: styles.drawerScene,
@@ -216,13 +217,13 @@ const Main = () => {
           component={HomeScreen}
           options={{
             headerShown: false,
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faHouseFlag}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
@@ -231,13 +232,13 @@ const Main = () => {
           name="Course"
           component={CourseScreen}
           options={{
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faCrown}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
@@ -248,13 +249,13 @@ const Main = () => {
           options={{
             title: "Synopses",
             headerTitle: () => null,
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faBarcode}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
@@ -265,13 +266,13 @@ const Main = () => {
           options={{
             title: "Library",
             headerTitle: () => null,
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faFeather}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
@@ -279,19 +280,19 @@ const Main = () => {
         <Drawer.Screen
           name="MyHighlights"
           component={MyHighlightsScreen}
-          options={{ title: "My Highlights", drawerLabelStyle: { color: "white" } }}
+          options={{ title: "My Highlights", drawerLabelStyle: { color: C.text } }}
         />
         <Drawer.Screen
           name="About"
           component={AboutScreen}
           options={{
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faUmbrella}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
@@ -302,18 +303,18 @@ const Main = () => {
           options={{
             title: "Contact & Feedback",
             headerTitle: () => null,
-            drawerLabelStyle: { color: "white" },
+            drawerLabelStyle: { color: C.text },
             drawerIcon: ({ focused }) => (
               <FontAwesomeIcon
                 icon={faWalkieTalkie}
                 style={styles.drawerIcon}
                 size={28}
-                color={focused ? "peru" : "gray"}
+                color={focused ? C.gold : C.muted}
               />
             ),
           }}
         />
-        {!user && (
+        {/* Keep account routes mounted while Firebase publishes sign-in and profile writes finish. */}
           <>
             <Drawer.Screen
               name="SignUp"
@@ -321,13 +322,13 @@ const Main = () => {
               options={{
                 title: "Create account",
                 headerShown: false,
-                drawerLabelStyle: { color: "white" },
+                drawerLabelStyle: { color: C.text },
                 drawerIcon: ({ focused }) => (
                   <FontAwesomeIcon
                     icon={faHouseFlag}
                     style={styles.drawerIcon}
                     size={28}
-                    color={focused ? "peru" : "gray"}
+                    color={focused ? C.gold : C.muted}
                   />
                 ),
               }}
@@ -337,19 +338,18 @@ const Main = () => {
               component={LoginScreen}
               options={{
                 headerShown: false,
-                drawerLabelStyle: { color: "white" },
+                drawerLabelStyle: { color: C.text },
                 drawerIcon: ({ focused }) => (
                   <FontAwesomeIcon
                     icon={faHouseFlag}
                     style={styles.drawerIcon}
                     size={28}
-                    color={focused ? "peru" : "gray"}
+                    color={focused ? C.gold : C.muted}
                   />
                 ),
               }}
             />
           </>
-        )}
       </Drawer.Navigator>
     </View>
   );
@@ -358,6 +358,7 @@ const Main = () => {
 const Stacks = () => {
   const headerStyle = useEditorialHeaderStyle();
   const screenOptions = {
+    cardStyle: { backgroundColor: C.background },
     headerTintColor: C.text,
     headerStyle,
     headerTitle: ({ children, tintColor }) => <Text accessibilityRole="header" style={[styles.drawerHeaderTitle, { color: tintColor }]}>{children}</Text>,
@@ -372,6 +373,11 @@ const Stacks = () => {
         <Stack.Screen
           name="Main"
           component={Main}
+          options={{ headerShown: false, animation: 'none' }}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
           options={{ headerShown: false }}
         />
         <Stack.Screen
@@ -411,12 +417,12 @@ const Stacks = () => {
         <Stack.Screen
           name="Login"
           component={LoginScreen}
-          options={{ title: "Log in", headerShown: false, animation: 'none', cardStyle: { backgroundColor: '#0e0c20' } }}
+          options={{ title: "Log in", headerShown: false, animation: 'none' }}
         />
         <Stack.Screen
           name="SignUp"
           component={SignUpScreen}
-          options={{ title: "Create account", headerShown: false, animation: 'none', cardStyle: { backgroundColor: '#0e0c20' } }}
+          options={{ title: "Create account", headerShown: false, animation: 'none' }}
         />
         <Stack.Screen
           name="ReadFolger"

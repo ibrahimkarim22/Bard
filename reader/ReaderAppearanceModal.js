@@ -31,7 +31,7 @@ export default function ReaderAppearanceModal({
   const insets = useSafeAreaInsets();
   const heading = useRef(null);
   const closeButton = useRef(null);
-  const theme = THEMES[preferences.theme] || THEMES.paper;
+  const theme = THEMES[preferences.theme] || THEMES.night;
   const colors = { color: theme.text };
   const secondary = { color: theme.secondary };
   const changeSize = amount => {

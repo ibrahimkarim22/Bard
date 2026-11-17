@@ -19,7 +19,7 @@ export const COURSE_COLORS = Object.freeze({
 export function CoursePage({ children, scrollRef, contentContainerStyle, overlay }) {
   return (
     <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
-      <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
+      <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
@@ -43,7 +43,7 @@ export function CourseText({ children, tone = "body", style, ...props }) {
 
 export function CourseActivityPage({ children, footer, scrollRef }) {
   return <SafeAreaView style={styles.page} edges={["left", "right", "bottom"]}>
-    <StatusBar barStyle="dark-content" backgroundColor={COURSE_COLORS.background} />
+    <StatusBar barStyle="light-content" backgroundColor={COURSE_COLORS.background} />
     <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.activityContent}
       keyboardShouldPersistTaps="handled">{children}</ScrollView>
     <View style={styles.activityFooter}>{footer}</View>
@@ -73,6 +73,7 @@ export function CourseButton({
   accessibilityLabel,
   testID,
   buttonRef,
+  colors = COURSE_COLORS,
 }) {
   const inactive = disabled || busy;
   return (
@@ -87,12 +88,14 @@ export function CourseButton({
       style={({ pressed }) => [
         styles.button,
         styles[variant],
+        variant === "primary" && { backgroundColor: colors.gold, borderColor: colors.gold },
+        variant === "secondary" && { backgroundColor: colors.soft, borderColor: colors.soft },
         pressed && styles.pressed,
         inactive && styles.disabled,
       ]}
     >
-      {busy && <ActivityIndicator color={variant === "primary" ? COURSE_COLORS.onGold : COURSE_COLORS.gold} />}
-      <CourseText style={[styles.buttonLabel, variant === "primary" && styles.primaryLabel]}>{title}</CourseText>
+      {busy && <ActivityIndicator color={variant === "primary" ? colors.onGold : colors.gold} />}
+      <CourseText style={[styles.buttonLabel, { color: variant === "primary" ? colors.onGold : colors.text }]}>{title}</CourseText>
     </Pressable>
   );
 }
@@ -118,7 +121,6 @@ const styles = StyleSheet.create({
   secondary: { backgroundColor: C.soft, borderColor: C.soft },
   quiet: { backgroundColor: "transparent", borderColor: "transparent" },
   buttonLabel: { flexShrink: 1, fontSize: 16, lineHeight: 24, fontWeight: "700", textAlign: "center" },
-  primaryLabel: { color: COURSE_COLORS.onGold },
   pressed: { opacity: 0.8 },
   disabled: { opacity: 0.5 },
 });

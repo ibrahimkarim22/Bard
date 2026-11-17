@@ -31,7 +31,7 @@ const ReaderSurface = forwardRef(function ReaderSurface({
   const { fontScale } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const theme = THEMES[preferences.theme] || THEMES.paper;
+  const theme = THEMES[preferences.theme] || THEMES.night;
   const srcDoc = useMemo(() => document.html, [document.html]);
   latestAppearance.current = { preferences, fontScale, fontFaces };
   latestOnMessage.current = onMessage;

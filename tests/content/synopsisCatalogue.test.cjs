@@ -39,6 +39,7 @@ test('the catalogue shows covers, readable neutral rows and searchable genre com
   assert.equal(h.button('Play B synopsis') !== undefined, true);
   nodes(h.render(), 'TextInput')[0].props.onSubmitEditing();
   assert.ok(h.calls.some(c => c[0] === 'keyboard-dismiss'));
-  assert.equal(nodes(h.render(), 'ScrollView').length, 1);
-  assert.equal(nodes(h.render(), 'ScrollView')[0].props.keyboardDismissMode, 'on-drag');
+  assert.equal(nodes(h.render(), 'ScrollView').length, 0);
+  assert.equal(nodes(h.render(), 'FlatList').length, 1);
+  assert.equal(nodes(h.render(), 'FlatList')[0].props.keyboardDismissMode, 'on-drag');
 });

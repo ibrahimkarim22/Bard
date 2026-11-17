@@ -56,6 +56,14 @@ function control(tree, label) {
 function style(value) { return Object.assign({}, ...[value].flat(Infinity).filter(Boolean)); }
 function text(tree) { return nodes(tree, 'Text').map(node => node.props.children.flat(Infinity).filter(value => typeof value === 'string' || typeof value === 'number').join('')).join('\n'); }
 
+test('appearance defaults and unknown theme fallback use Night while explicit light choices remain available', () => {
+  const sheet = host();
+  for (const [preferences, background] of [[undefined, '#1b1820'], [{ ...defaults, theme: 'unknown' }, '#1b1820'], [defaults, '#FFFCF5'], [{ ...defaults, theme: 'sepia' }, '#F6ECD9']]) {
+    const panel = nodes(sheet.render({ preferences }), 'View').find(node => node.props.accessibilityViewIsModal);
+    assert.equal(style(panel.props.style).backgroundColor, background);
+  }
+});
+
 test('appearance controls send only their selected preference patch and expose selected choices', () => {
   const sheet = host();
   const changes = [];

@@ -1,7 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Image, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { EDITORIAL_COLORS as C, getEditorialGenreTone } from './editorialTheme';
+import PosterImage from './PosterImage';
 
 const fonts = {
   BardEditorialSerif: require('../assets/reader-fonts/source-serif-4/SourceSerif4-Regular.ttf'),
@@ -64,7 +65,7 @@ export function EditorialPlayRow({ play, onPress, subtitle, children, disabled =
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || play.name} accessibilityHint={accessibilityHint}
     accessibilityState={{ disabled }} disabled={disabled} onPress={disabled ? undefined : onPress}
     style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
-    {!!play.mainImage && <Image source={play.mainImage} accessible={false} style={styles.cover} resizeMode="cover" resizeMethod="resize" />}
+    {!!play.mainImage && <PosterImage source={play.mainImage} accessible={false} style={styles.cover} resizeMode="cover" resizeMethod="resize" />}
     <View style={styles.rowCopy}>
       <EditorialText style={[styles.genre, { color: tone.color }]}>{play.genre || 'Play'}</EditorialText>
       <EditorialText serif style={styles.playTitle}>{play.name}</EditorialText>

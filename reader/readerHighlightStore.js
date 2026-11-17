@@ -10,10 +10,13 @@ const valueBytes = value => typeof value === 'string' ? utf8Length(value) : valu
 const unavailableId = key => 'unavailable-key:'.padEnd(129, '!') + key;
 function failure(code) { return Object.assign(new Error(errorMessage(code)), { code }); }
 const sourceOrder = (a, b) => a.selectionRef.start - b.selectionRef.start || a.selectionRef.end - b.selectionRef.end || a.id.localeCompare(b.id);
+const DELETED_WORK = Object.freeze({ hydrated: false, loading: false, saving: false, records: Object.freeze([]), unresolved: Object.freeze([]), unreadable: Object.freeze([]), conflicts: Object.freeze([]), error: null, readError: null, writeBlocked: true });
+const DELETED_RAW = Object.freeze({ hydrated: false, loading: false, saving: false, entries: Object.freeze([]), count: 0, error: null, readError: null, writeBlocked: true });
+const DELETED_ACCOUNT = Object.freeze({ hydrated: false, loading: false, error: null, works: Object.freeze([]) });
 
 function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.now } = {}) {
   if (typeof makeId !== 'function' || typeof now !== 'function') throw new Error('Invalid highlight store configuration.');
-  const scopes = new Map();
+  const scopes = new Map(), blockedAccounts = new Set();
 
   const accounts = new Map();
   function ownerPrefix(uid) { return prefixFor(uid, 'x').slice(0, -2); }
@@ -28,9 +31,6 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
   }
   function storageAvailable() {
     if (!storage || ['getAllKeys', 'getItem', 'setItem', 'removeItem'].some(name => typeof storage[name] !== 'function')) throw failure('STORAGE_UNAVAILABLE');
-  }
-  function assertCurrent(options) {
-    if (options && typeof options.isCurrent === 'function' && !options.isCurrent()) throw failure('CANCELLED');
   }
   function checkedKeys(keys) {
     if (!Array.isArray(keys) || keys.some(key => typeof key !== 'string')) throw failure('READ_FAILED');
@@ -55,12 +55,17 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
 
   function rawScope({ uid, workKey }) {
     const owner = ownerPrefix(uid);
+    if (blockedAccounts.has(uid)) throw failure('ACCOUNT_DELETION_BLOCKED');
     if (typeof workKey !== 'string' || workKey.includes('/')) throw failure('INVALID_HIGHLIGHT');
     const base = owner + workKey, prefix = base + '/';
     if (scopes.has(prefix)) return scopes.get(prefix);
     const shared = { uid, workKey, prefix, base, tail: Promise.resolve(), values: new Map(), loaded: false, loading: false,
       saving: false, blocked: false, writeBlocked: false, error: null, readError: null, failedIntent: null, views: new Map(), rawListeners: new Set(), rawSnapshot: null, rawStore: null };
     scopes.set(prefix, shared);
+    function assertCurrent(options) {
+      if (shared.retired || blockedAccounts.has(uid)) throw failure('ACCOUNT_DELETION_BLOCKED');
+      if (options && typeof options.isCurrent === 'function' && !options.isCurrent()) throw failure('CANCELLED');
+    }
     function capacityCode() {
       if (shared.values.size > LIMITS.MAX_RECORDS) return 'HIGHLIGHT_COUNT_LIMIT';
       let bytes = 0;
@@ -84,11 +89,12 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
     }
     function setError(error, retryable) { shared.error = errorValue(error, retryable); publish(); }
     function enqueue(run) {
-      const task = shared.tail.then(run);
+      const task = shared.tail.then(async () => { assertCurrent(); const result = await run(); assertCurrent(); return result; });
       shared.tail = task.catch(() => {});
       return task;
     }
     async function load({ readOnly = false } = {}) {
+      assertCurrent();
       // Discovery/reloading is never permission to replay or discard a failed
       // write. Even an ambiguous successful write remains blocked until the
       // explicit write-retry action reconciles its original stable intent.
@@ -97,11 +103,11 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
       shared.loading = true; publish();
       try {
         storageAvailable();
-        const selected = checkedKeys(await storage.getAllKeys()).filter(key => key === base || key.startsWith(prefix)).sort();
+        const selected = checkedKeys(await storage.getAllKeys()).filter(key => key === base || key.startsWith(prefix)).sort(); assertCurrent();
         const values = new Map();
         let retainedBytes = 0;
         for (const key of selected) {
-          const raw = await storage.getItem(key);
+          const raw = await storage.getItem(key); assertCurrent();
           if (raw === null) continue;
           if (typeof raw !== 'string') throw failure('READ_FAILED');
           const bytes = utf8Length(raw);
@@ -116,6 +122,7 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
         shared.error = preserveWrite ? priorError : null;
         if (!preserveWrite) shared.writeBlocked = false;
       } catch (cause) {
+        if (cause.code === 'ACCOUNT_DELETION_BLOCKED') throw cause;
         const error = failure(cause.code === 'STORAGE_UNAVAILABLE' ? cause.code : 'READ_FAILED');
         shared.readError = errorValue(error);
         shared.blocked = true;
@@ -148,13 +155,16 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
         storageAvailable();
         if (intent.after === null) await storage.removeItem(intent.key);
         else await storage.setItem(intent.key, intent.after);
+        // A completed fixed-key write still belongs in this shared cache after
+        // ordinary navigation. Account deletion alone retires the whole queue.
+        assertCurrent();
         if (intent.after === null) shared.values.delete(intent.key);
         else shared.values.set(intent.key, intent.after);
         shared.failedIntent = null; shared.blocked = false; shared.writeBlocked = false; shared.error = null;
         publish();
         result = resultFor(intent);
       } catch (cause) {
-        if (cause.code === 'CANCELLED') throw cause;
+        if (['CANCELLED', 'ACCOUNT_DELETION_BLOCKED'].includes(cause.code)) throw cause;
         const error = failure(cause.code === 'STORAGE_UNAVAILABLE' ? cause.code : 'WRITE_FAILED');
         shared.failedIntent = intent; shared.blocked = true; shared.writeBlocked = true; setError(error, true); throw error;
       } finally { shared.saving = false; publish(); }
@@ -185,7 +195,7 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
     const refreshReadOnly = () => enqueue(async () => { await load({ readOnly: true }); return shared.rawSnapshot; });
     Object.assign(shared, { capacityCode, publish, enqueue, load, ensureLoaded, mutation, retry, refreshReadOnly });
     shared.rawStore = {
-      getSnapshot: () => shared.rawSnapshot,
+      getSnapshot: () => shared.retired ? DELETED_RAW : shared.rawSnapshot,
       subscribe(listener) { shared.rawListeners.add(listener); return () => shared.rawListeners.delete(listener); },
       hydrate: () => enqueue(async () => { if (!shared.loaded) await load({ readOnly: true }); return shared.rawSnapshot; }),
       refreshReadOnly,
@@ -204,11 +214,13 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
   function forStoredWork(options) { return rawScope(options).rawStore; }
   function forAccount({ uid }) {
     const owner = ownerPrefix(uid);
+    if (blockedAccounts.has(uid)) throw failure('ACCOUNT_DELETION_BLOCKED');
     if (accounts.has(uid)) return accounts.get(uid).store;
     const account = { uid, loaded: false, loading: false, error: null, snapshot: null, listeners: new Set(), tail: Promise.resolve(), store: null };
     accounts.set(uid, account);
     function refresh(force) {
       const task = account.tail.then(async () => {
+        if (account.retired || blockedAccounts.has(uid)) throw failure('ACCOUNT_DELETION_BLOCKED');
         if (!force && account.loaded) return account.snapshot;
         account.loading = true; publishAccount(account);
         try {
@@ -237,7 +249,7 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
       return task.then(() => account.snapshot);
     }
     account.store = {
-      getSnapshot: () => account.snapshot,
+      getSnapshot: () => account.retired ? DELETED_ACCOUNT : account.snapshot,
       subscribe(listener) { account.listeners.add(listener); return () => account.listeners.delete(listener); },
       hydrate: () => refresh(false), refreshReadOnly: () => refresh(true),
     };
@@ -351,7 +363,7 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
       }, options);
     }
     const store = {
-      getSnapshot: () => view.snapshot,
+      getSnapshot: () => shared.retired ? DELETED_WORK : view.snapshot,
       subscribe(listener) { view.listeners.add(listener); return () => view.listeners.delete(listener); },
       hydrate: () => enqueue(async () => { await ensureLoaded(); return view.snapshot; }),
       refreshReadOnly: () => shared.refreshReadOnly().then(() => view.snapshot),
@@ -365,7 +377,25 @@ function createHighlightStoreManager(storage, { makeId = defaultId, now = Date.n
     view.snapshot = classify();
     return store;
   }
-  return { forWork, forStoredWork, forAccount };
+  function blockAccount(uid) {
+    ownerPrefix(uid); blockedAccounts.add(uid);
+    for (const shared of scopes.values()) if (shared.uid === uid) { shared.retired = true; shared.publish(); }
+    const account = accounts.get(uid); if (account) { account.retired = true; notify(account.listeners); }
+  }
+  async function drainAccount(uid) {
+    await Promise.all([accounts.get(uid)?.tail, ...[...scopes.values()].filter(shared => shared.uid === uid).map(shared => shared.tail)]);
+  }
+  function clearAccount(uid) {
+    for (const [key, shared] of scopes) if (shared.uid === uid) {
+      shared.values.clear(); shared.failedIntent = null; shared.error = null; shared.readError = null;
+      shared.loaded = false; shared.saving = false; shared.loading = false;
+      for (const view of shared.views.values()) view.parsed?.clear();
+      shared.publish(); scopes.delete(key);
+    }
+    const account = accounts.get(uid); if (account) { account.snapshot = DELETED_ACCOUNT; notify(account.listeners); accounts.delete(uid); }
+  }
+  async function unblockAccount(uid, allowed = () => true) { await drainAccount(uid); if (!allowed()) throw failure('ACCOUNT_DELETION_PERMANENT'); clearAccount(uid); blockedAccounts.delete(uid); }
+  return { forWork, forStoredWork, forAccount, blockAccount, drainAccount, clearAccount, unblockAccount };
 }
 
 module.exports = { createHighlightStoreManager };

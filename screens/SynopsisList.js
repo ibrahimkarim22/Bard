@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Keyboard, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
+import { FlatList, Keyboard, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { PLAYS, getLocalPlayEntry } from '../shared/localPlayService';
@@ -24,35 +24,36 @@ export default function SynopsisList() {
     return { ...play, aliases: [entry?.code, entry?.play?.title, entry?.play?.fullTitle].filter(Boolean) };
   }), []);
   const visible = useMemo(() => filterSynopsisPlays(plays, query, genre), [plays, query, genre]);
-  const top = () => scroll.current?.scrollTo({ y: 0, animated: false });
+  const top = () => scroll.current?.scrollToOffset({ offset: 0, animated: false });
   const search = value => { setQuery(value); top(); };
   const chooseGenre = value => { setGenre(value); top(); };
   const open = play => { Keyboard.dismiss(); navigation.navigate('Synopsis', { id: play.id }); };
 
   return <SafeAreaView style={styles.page} edges={['left', 'right']}>
-    <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-    <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.content}
-      keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+    <FlatList ref={scroll} data={visible} keyExtractor={play => play.id}
+      initialNumToRender={6} maxToRenderPerBatch={4} windowSize={3} updateCellsBatchingPeriod={80}
+      removeClippedSubviews={false} style={styles.scroll} contentContainerStyle={styles.content}
+      keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+      ListHeaderComponent={<View style={styles.header}>
       <EditorialHeading eyebrow="The stories" title="Synopses"
         subtitle="Find your way through the story, then return to the words." />
       <View style={styles.controls}>
         <EditorialSearch value={query} onChangeText={search} onClear={() => search('')} />
         <EditorialFilters values={SYNOPSIS_GENRES} value={genre} onChange={chooseGenre} />
       </View>
-      <View>
         <EditorialText style={styles.count} accessibilityLiveRegion="polite">
           {visible.length + (visible.length === 1 ? ' play' : ' plays')}
         </EditorialText>
-        {visible.map(play => <EditorialPlayRow key={play.id} play={play}
+      </View>}
+      renderItem={({ item: play }) => <EditorialPlayRow play={play}
           accessibilityLabel={play.name + ' synopsis'} accessibilityHint={'Read the ' + play.genre.toLowerCase() + ' synopsis.'}
-          onPress={() => open(play)} />)}
-        {!visible.length && <View style={styles.empty}>
+          onPress={() => open(play)} />}
+      ListEmptyComponent={<View style={styles.empty}>
           <EditorialText serif accessibilityRole="header" style={styles.emptyTitle}>No plays found</EditorialText>
           <EditorialText style={styles.detail}>Try another title or genre.</EditorialText>
           <EditorialButton title="Clear search and filters" variant="quiet" onPress={() => { search(''); chooseGenre('All'); }} />
-        </View>}
-      </View>
-    </ScrollView>
+        </View>} />
   </SafeAreaView>;
 }
 
@@ -60,7 +61,8 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
   scroll: { flex: 1 },
   content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: spacing.horizontal,
-    paddingTop: spacing.section, paddingBottom: 36, gap: spacing.section },
+    paddingTop: spacing.section, paddingBottom: 36 },
+  header: { gap: spacing.section },
   controls: { gap: 16 },
   count: { fontSize: 13, lineHeight: 20, color: colors.muted, paddingBottom: 8 },
   empty: { paddingTop: 24, paddingBottom: 20, gap: 12 },

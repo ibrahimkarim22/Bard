@@ -55,7 +55,7 @@ test('runtime scopes appearance to identity, preserves the visible text point an
   await h.flush();
   assert.equal(h.styles['--reader-font-size'], '30px');
   assert.equal(h.styles['--reader-font-scale'], '1.2');
-  assert.equal(h.styles['--reader-background'], '#181C1A');
+  assert.equal(h.styles['--reader-background'], '#121116');
   assert.equal(h.window.scrollY, 50, 'same text point retains its original viewport top after reflow');
   const applied = h.messages.find(message => message.type === 'applied');
   assert.equal(applied.requestId, 1);

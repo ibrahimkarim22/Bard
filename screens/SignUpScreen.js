@@ -5,7 +5,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import {
   faEnvelope,
@@ -18,9 +18,12 @@ import {
 import { FIREBASE_AUTH, FIRESTORE_DB } from "../firebaseConfig";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import AuthStage, { AUTH_COLORS as C } from './AuthStage';
 import { EditorialText as Text } from "../shared/EditorialUI";
+import { runAuthMutation } from '../account/authMutationGate';
+import { authenticationErrorMessage, requiredCredentialsMessage } from '../account/authMessages';
+import AuthFormError from './AuthFormError';
 
 const AuthInput = ({ icon, rightElement, ...props }) => (
   <View style={styles.inputWrap}>
@@ -44,22 +47,54 @@ const SignUpScreen = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
+  const [formError, setFormError] = useState(null);
+  const focused = useIsFocused();
+  const active = useRef(focused);
+  const submission = useRef(null);
+  const formRevision = useRef(0);
+  active.current = focused;
   const auth = FIREBASE_AUTH;
 
+  useEffect(() => {
+    active.current = focused;
+    if (!focused) { submission.current = null; setAuthenticatedUser(null); setLoading(false); setFormError(null); }
+    return () => { active.current = false; submission.current = null; };
+  }, [focused]);
+
+  const changeField = (setField, value) => {
+    formRevision.current += 1;
+    setFormError(null);
+    setField(value);
+  };
+
   const SignUp = async () => {
+    if (!active.current || submission.current) return;
+    const requiredMessage = requiredCredentialsMessage(email, password);
+    if (requiredMessage) { setFormError(requiredMessage); return; }
+    const submittedEmail = email.trim();
+    const request = { revision: formRevision.current };
+    submission.current = request;
+    const isCurrent = () => active.current && submission.current === request;
+    let succeeded = false;
+    let createdUser = null;
+    setFormError(null);
     setLoading(true);
     try {
-      const response = await createUserWithEmailAndPassword(
+      const response = await runAuthMutation(() => isCurrent() ? createUserWithEmailAndPassword(
         auth,
-        email,
+        submittedEmail,
         password
-      );
+      ) : null);
+      if (!response || auth.currentUser?.uid !== response.user.uid) return;
+      createdUser = response.user;
 
       await updateProfile(response.user, {
         displayName: `${firstName} ${lastName}`.trim(),
         photoURL:
           "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPqyKSgl0SqQ6kxcklpXJgijs3B_E212kVuvKxG-OeGQ&s",
       });
+      if (auth.currentUser?.uid !== response.user.uid) return;
 
       const userRef = doc(FIRESTORE_DB, "users", response.user.uid);
       await setDoc(userRef, {
@@ -69,18 +104,20 @@ const SignUpScreen = () => {
           "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPqyKSgl0SqQ6kxcklpXJgijs3B_E212kVuvKxG-OeGQ&s",
       });
 
-      alert("Welcome to BARD. Enjoy the journey.");
-      navigation.navigate("Main");
+      if (!isCurrent() || auth.currentUser?.uid !== response.user.uid) return;
+      succeeded = true;
+      setAuthenticatedUser(response.user);
     } catch (error) {
-      console.error(error);
-      alert("Sign up failed " + error.message);
+      if (!isCurrent() || request.revision !== formRevision.current || (createdUser && auth.currentUser !== createdUser)) return;
+      setFormError(authenticationErrorMessage(error, 'signup', !!createdUser));
     } finally {
-      setLoading(false);
+      if (isCurrent() && !succeeded) { submission.current = null; setLoading(false); }
     }
   };
 
   return (
-    <AuthStage scene="sun" navigation={navigation}>
+    <AuthStage scene="sun" navigation={navigation} authenticatedUser={authenticatedUser}
+      onSuccessCancelled={() => { submission.current = null; setAuthenticatedUser(null); setLoading(false); }}>
           <View style={styles.header}>
             <Text serif accessibilityRole="header" style={styles.title}>Create account</Text>
           </View>
@@ -93,7 +130,7 @@ const SignUpScreen = () => {
                   placeholder="First"
                   value={firstName}
                   textContentType="givenName"
-                  onChangeText={setFirstName}
+                  onChangeText={value => changeField(setFirstName, value)}
                 />
               </View>
               <View style={styles.nameField}>
@@ -102,7 +139,7 @@ const SignUpScreen = () => {
                   placeholder="Last"
                   value={lastName}
                   textContentType="familyName"
-                  onChangeText={setLastName}
+                  onChangeText={value => changeField(setLastName, value)}
                 />
               </View>
             </View>
@@ -114,7 +151,7 @@ const SignUpScreen = () => {
               autoCorrect={false}
               keyboardType="email-address"
               textContentType="emailAddress"
-              onChangeText={setEmail}
+              onChangeText={value => changeField(setEmail, value)}
             />
             <AuthInput
               icon={faLock}
@@ -123,7 +160,7 @@ const SignUpScreen = () => {
               autoCapitalize="none"
               autoCorrect={false}
               textContentType="newPassword"
-              onChangeText={setPassword}
+              onChangeText={value => changeField(setPassword, value)}
               secureTextEntry={!showPassword}
               rightElement={
                 <Pressable
@@ -142,6 +179,8 @@ const SignUpScreen = () => {
                 </Pressable>
               }
             />
+
+            <AuthFormError message={formError} />
 
             <Pressable
               accessibilityRole="button"

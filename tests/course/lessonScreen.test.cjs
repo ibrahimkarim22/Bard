@@ -216,7 +216,7 @@ test('invalid or missing routes cannot silently open the first local play', () =
 
 test('lesson uses natural scrolling and labels allow font scaling without line limits', () => {
   const tree = host().render();
-  assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'dark-content');
+  assert.equal(nodes(tree, 'StatusBar')[0]?.props.barStyle, 'light-content');
   assert.equal(nodes(tree, 'ScrollView').length, 1);
   assert.deepEqual(nodes(tree, 'SafeAreaView')[0].props.edges, ['left', 'right', 'bottom']);
   for (const node of nodes(tree, 'Text')) {

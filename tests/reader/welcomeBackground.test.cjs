@@ -71,6 +71,100 @@ test('the closed curtain panels meet exactly at the center without overlap', () 
   }
 });
 
+test('a Home reveal opens both panels fully beyond their shadows and completes once without a blur loop', async () => {
+  let completions = 0;
+  const h = host({ width: 343 });
+  const props = { fullyOpen: true, onOpened: () => completions++ };
+  const tree = h.render(props);
+  assert.equal(h.values[0].value, 0, 'the first Home frame is completely covered');
+  const panels = nodes(tree, 'AnimatedView').filter(node => /curtain-panel-/.test(node.props.testID));
+  for (const panel of panels) {
+    const offset = Math.abs(flatten(panel.props.style).transform[0].translateX.config.outputRange[1]);
+    assert.ok(offset >= 343 / 2 + 24, 'the entire panel and its shadow leave the viewport');
+  }
+  await allow(h);
+  const opening = entrance(h);
+  assert.ok(opening);
+  opening.finish();
+  assert.equal(completions, 1);
+  assert.equal(h.active().length, 0, 'the removed Home curtains never start a background blur cycle');
+  h.render(props);
+  opening.callback({ finished: true });
+  assert.equal(completions, 1);
+});
+
+test('reduced motion and unavailable preferences finish a Home reveal immediately', async () => {
+  for (const outcome of ['reduced', 'rejected']) {
+    let completions = 0;
+    const h = host(); h.render({ fullyOpen: true, onOpened: () => completions++ });
+    if (outcome === 'reduced') h.queries[0].resolve(true);
+    else h.queries[0].reject(Error('Unavailable'));
+    await tick();
+    assert.equal(completions, 1);
+    assert.equal(h.values[0].value, 1);
+    assert.equal(entrance(h), undefined);
+    assert.equal(h.active().length, 0);
+  }
+});
+
+test('a cancelled Home reveal cannot complete through a late animation callback', async () => {
+  let completions = 0;
+  const h = host(); h.render({ fullyOpen: true, onOpened: () => completions++ });
+  await allow(h);
+  const opening = entrance(h);
+  h.unmount(); opening.callback({ finished: true });
+  assert.equal(completions, 0);
+});
+
+test('backgrounding a Home curtain waiting for content keeps it completely covered', async () => {
+  const h = host(); h.render({ fullyOpen: true, closing: true });
+  await allow(h);
+  h.event('app:change', 'background');
+  assert.equal(h.values[0].value, 0, 'returning cannot expose Home before its loading gate releases');
+  h.event('app:change', 'active');
+  assert.equal(h.values[0].value, 0);
+});
+
+test('one persistent curtain keeps its native position through close, covered navigation and full opening', async () => {
+  let closed = 0, opened = 0;
+  const h = host();
+  const props = { initiallyOpen: true, holdClosedOnPause: true, closing: true,
+    onClosed: () => closed++, onOpened: () => opened++ };
+  h.render(props);
+  const position = h.values[0];
+  assert.equal(position.value, 1, 'takeover matches the settled account curtain instead of mounting closed');
+  await allow(h);
+  const shutting = entrance(h);
+  assert.equal(shutting.options.toValue, 0);
+  shutting.finish();
+  h.render(props);
+  assert.equal(closed, 1);
+  assert.equal(h.values[0], position);
+  assert.equal(position.value, 0, 'covered navigation does not reset or replace the native position');
+  h.event('app:change', 'background');
+  assert.equal(position.value, 0, 'covered state stays opaque outside the foreground');
+  h.event('app:change', 'active');
+  h.render({ ...props, closing: false, fullyOpen: true });
+  assert.equal(h.values[0], position, 'full reveal continues on the same native value');
+  assert.equal(position.value, 0);
+  entrance(h).finish();
+  assert.equal(opened, 1);
+  assert.equal(h.active().length, 0);
+});
+
+test('an account entrance settled while backgrounded reports readiness once on return', async () => {
+  let opened = 0;
+  const h = host(); h.render({ onOpened: () => opened++ });
+  await allow(h);
+  assert.ok(entrance(h));
+  h.event('app:change', 'background');
+  assert.equal(opened, 0);
+  h.event('app:change', 'active');
+  assert.equal(opened, 1, 'authentication must not wait forever for an entrance already settled');
+  h.event('app:change', 'background'); h.event('app:change', 'active');
+  assert.equal(opened, 1);
+});
+
 test('returning to a retained account scene opens from covered without an already-open frame', async () => {
   const h = host(); h.render({ reopenOnFocus: true }); await allow(h); entrance(h).finish();
   h.focus(false);

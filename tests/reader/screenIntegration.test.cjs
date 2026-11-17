@@ -229,13 +229,18 @@ test('appearance choices update the reading document in place and reset restores
   assert.equal(page.props.document, firstPage.props.document, 'appearance changes retain the generated document and its identity');
   assert.equal(screen.store.getSnapshot().preferences.theme, 'night', 'changes flow into the real isolated store');
   modal = nodes(tree, 'ReaderAppearanceModal')[0];
+  modal.props.onChange({ theme: 'sepia' });
+  tree = screen.render();
+  assert.equal(nodes(tree, 'ReaderSurface')[0].props.preferences.theme, 'sepia');
+  modal = nodes(tree, 'ReaderAppearanceModal')[0];
   modal.props.onReset();
   tree = screen.render();
   page = nodes(tree, 'ReaderSurface')[0];
-  assert.deepEqual(page.props.preferences, defaults);
+  const resetDefaults = { schemaVersion: 1, fontId: 'literata', fontSize: 20, lineSpacing: 'comfortable', theme: 'night' };
+  assert.deepEqual(page.props.preferences, resetDefaults);
   assert.equal(page.props.document, firstPage.props.document);
   await screen.store.flush();
-  assert.deepEqual(JSON.parse(screen.storage.get(PREFERENCE_KEY)), defaults);
+  assert.deepEqual(JSON.parse(screen.storage.get(PREFERENCE_KEY)), resetDefaults);
 });
 
 test('closing appearance restores the named header control and Back retains native navigation', async () => {

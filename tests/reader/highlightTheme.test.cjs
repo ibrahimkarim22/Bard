@@ -9,7 +9,7 @@ function luminance(hex) {
 const contrast = (a, b) => { const values = [luminance(a), luminance(b)].sort((x, y) => y - x); return (values[0] + 0.05) / (values[1] + 0.05); };
 
 test('highlight controls use theme-aware neutrals and restrained accessible destructive tones, including disabled and pressed surfaces', () => {
-  const intended = { paper: '#242723', sepia: '#322A20', night: '#E8E6DC' };
+  const intended = { paper: '#242723', sepia: '#322A20', night: '#f3eadb' };
   const findings = [];
   for (const [id, theme] of Object.entries(THEMES)) {
     assert.equal(theme.highlightAction, intended[id]);
