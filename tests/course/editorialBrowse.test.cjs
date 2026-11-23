@@ -3,6 +3,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 const babel = require('@babel/core');
+const { createCourseUnlockHistory } = require('../../course/courseUnlockHistory');
 
 const root = path.resolve(__dirname, '../..');
 const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [
@@ -18,8 +19,10 @@ const plays = [
   { id: 'tempest', name: 'The Tempest', genre: 'Romance', difficulty: 39, mainImage: 'cover-tempest', medalImage: 'medal-tempest' },
 ];
 
-function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensions = { width: 320, height: 640, fontScale: 1.5 }) {
+function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensions = { width: 320, height: 640, fontScale: 1.5 }, { seenLevel = 0 } = {}) {
   const calls = [], scrolls = [], frames = new Map(), cache = new Map();
+  const history = createCourseUnlockHistory({ getItem: async () => JSON.stringify(seenLevel), setItem: async () => {} });
+  let focused = true;
   let frame, effects;
   const same = (a, b) => a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
   function invoke(type, props) {
@@ -41,6 +44,7 @@ function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensi
       return { type, props: next };
     },
     useMemo: memo, useCallback: (callback, deps) => memo(() => callback, deps),
+    useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     useLayoutEffect(callback, deps) { return React.useEffect(callback, deps); },
     useRef: value => memo(() => ({ current: value }), []),
     useState(initial) {
@@ -54,7 +58,7 @@ function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensi
   };
   const native = Object.fromEntries(['View', 'Text', 'Pressable', 'ScrollView', 'StatusBar', 'ActivityIndicator', 'TextInput', 'Image', 'ImageBackground'].map(name => [name, name]));
   native.FlatList = props => {
-    if (props.ref) props.ref.current = { scrollToOffset: value => scrolls.push(value) };
+    if (props.ref) props.ref.current = { scrollToOffset: value => scrolls.push(value), scrollToIndex: value => scrolls.push(value) };
     return { type: 'FlatList', props: { ...props, children: [props.ListHeaderComponent,
       ...props.data.map((item, index) => props.renderItem({ item, index })),
       !props.data.length && props.ListEmptyComponent] } };
@@ -64,6 +68,9 @@ function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensi
     Platform: { OS: 'android', select: value => value.android || value.default },
     useWindowDimensions: () => dimensions,
     Keyboard: { dismiss: () => calls.push(['keyboard-dismiss']) },
+    Animated: { Value: class { setValue() {} interpolate(value) { return value; } }, View: 'AnimatedView' },
+    AccessibilityInfo: { isReduceMotionEnabled: async () => true, addEventListener: () => ({ remove() {} }) },
+    AppState: { currentState: 'active', addEventListener: () => ({ remove() {} }) },
   });
   function load(file) {
     if (cache.has(file)) return cache.get(file);
@@ -75,12 +82,13 @@ function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensi
       if (name === 'react') return React;
       if (name === 'react-native') return native;
       if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView' };
-      if (name === '@react-navigation/native') return { useNavigation: () => ({ navigate: (...args) => calls.push(args) }) };
+      if (name === '@react-navigation/native') return { useNavigation: () => ({ navigate: (...args) => calls.push(args) }), useIsFocused: () => focused };
       if (name === 'expo-font') return { useFonts: () => [true, null] };
       if (name === '@fortawesome/react-native-fontawesome') return { FontAwesomeIcon: 'Icon' };
-      if (name === '@fortawesome/free-solid-svg-icons') return {};
+      if (name === '@fortawesome/free-solid-svg-icons') return { faCheck: 'check', faLock: 'lock' };
       if (name.endsWith('/Loader')) return { __esModule: true, default: 'Loader' };
       if (name.endsWith('/AccountCourseProgress')) return { useAccountCourseProgress: () => progress, retryAccountProgress: async () => {} };
+      if (name.endsWith('/normalCourseUnlockHistory')) return { normalCourseUnlockHistory: history };
       if (name.endsWith('/CourseProgressNotice')) return { CourseProgressNotice: props => ({ type: 'ProgressNotice', props: { ...props, children: [] } }) };
       if (name.endsWith('/localPlayService')) return { PLAYS: plays, getLocalPlayEntry: id => ({ code: id === 'hamlet' ? 'HAM' : id,
         play: { title: id === 'hamlet' ? 'The Tragedy of Hamlet' : id, fullTitle: id } }) };
@@ -89,10 +97,11 @@ function host(screen, progress = { status: 'ready', completedLevel: 0 }, dimensi
     }, module, module.exports, React, () => 1, () => {});
     cache.set(file, module.exports); return module.exports;
   }
-  const h = { calls, scrolls,
+  const h = { calls, scrolls, history,
     render() { effects = []; const tree = invoke(load(screen).default, {}); effects.forEach(effect => effect()); return tree; },
     button(label) { return nodes(h.render(), 'Pressable').find(node => node.props.accessibilityLabel === label); },
     search(value) { nodes(h.render(), 'TextInput')[0].props.onChangeText(value); },
+    focus(value) { focused = value; return h.render(); },
   };
   return h;
 }
@@ -140,6 +149,8 @@ test('Course keeps completed, current and locked levels distinct and guards lock
   completed.props.onPress(); current.props.onPress(); locked.props.onPress?.();
   assert.deepEqual(h.calls, [['Lesson', { id: 'dream' }], ['Lesson', { id: 'hamlet' }]]);
   assert.equal(locked.props.onPress, undefined);
+  const rail = nodes(h.render(), 'View').find(node => node.props.testID === 'course-rail-henry');
+  assert.ok(nodes(rail, 'Icon').some(node => node.props.icon === 'lock'), 'locked plays have a visible lock on the path');
   assert.equal(current.props.accessibilityState.selected, true);
   assert.equal(completed.props.accessibilityState.selected, false);
   assert.equal(nodes(h.render(), 'FlatList').length, 1);
@@ -218,4 +229,25 @@ test('poster collections bound initial and offscreen rendering instead of reques
     assert.equal(list.props.data.length, 4, 'all plays remain reachable through the virtual list');
     assert.equal(new Set(list.props.data.map(list.props.keyExtractor)).size, 4, 'items retain distinct stable identities');
   }
+});
+
+test('Course arrival from any screen reveals an unseen medal then revisits the unlocked play without route parameters', async () => {
+  const progress = { status: 'ready', completedLevel: 1, owner: { uid: 'course-reader', generation: 1 } };
+  const h = host('screens/CourseScreen.js', progress);
+  h.render(); await new Promise(resolve => setImmediate(resolve));
+  let tree = h.render();
+  assert.ok(byId(tree, 'course-unlock-lock-overlay'), 'the course derives a pending unlock without a Continue course route event');
+  assert.equal(h.button('Hamlet, Locked').props.disabled, true);
+  const list = nodes(tree, 'FlatList')[0];
+  assert.equal(list.props.scrollEventThrottle, 16); assert.equal(typeof list.props.onScroll, 'function');
+  list.props.onLayout(); await new Promise(resolve => setImmediate(resolve)); h.render();
+  assert.equal(h.scrolls.at(-1).index, 1, 'reduced motion lands on the unlocked poster');
+  list.props.onViewableItemsChanged({ viewableItems: [{ item: plays.find(play => play.id === 'hamlet'), isViewable: true }] });
+  tree = h.render();
+  assert.equal(h.history.getSnapshot('course-reader').seenLevel, 1);
+  assert.equal(byId(tree, 'course-unlock-lock-overlay'), undefined);
+  assert.ok(h.button('Hamlet, You are here'));
+  const scrollCount = h.scrolls.length; h.focus(false); h.focus(true);
+  assert.equal(h.scrolls.length, scrollCount + 1); assert.equal(h.scrolls.at(-1).index, 1);
+  assert.equal(byId(h.render(), 'course-unlock-lock-overlay'), undefined, 'later visits do not replay the celebration');
 });

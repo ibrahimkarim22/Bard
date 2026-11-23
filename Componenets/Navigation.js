@@ -30,14 +30,16 @@ import {
   faFeather,
   faHouseFlag,
   faLightbulb,
+  faRightFromBracket,
   faRightToBracket,
   faUmbrella,
   faUserPlus,
   faWalkieTalkie,
 } from "@fortawesome/free-solid-svg-icons";
 import { onAuthStateChanged } from "firebase/auth";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FIREBASE_AUTH } from "../firebaseConfig";
+import { runAuthMutation } from "../account/authMutationGate";
 import { EditorialText as Text } from "../shared/EditorialUI";
 import { EDITORIAL_COLORS as C } from "../shared/editorialTheme";
 
@@ -102,15 +104,20 @@ const drawerItems = [
   },
 ];
 
-const DrawerNavItem = ({ item, focused, navigation }) => (
+const logoutItem = { name: "Logout", label: "Log out", icon: faRightFromBracket };
+
+const DrawerNavItem = ({ item, focused, navigation, onPress, disabled = false, busy = false }) => (
   <Pressable
     accessibilityRole="button"
-    accessibilityState={focused ? { selected: true } : undefined}
-    onPress={() => navigation.navigate(item.name)}
+    accessibilityLabel={item.label}
+    accessibilityState={{ selected: !!focused, disabled, busy }}
+    disabled={disabled}
+    onPress={onPress || (() => navigation.navigate(item.name))}
     style={({ pressed }) => [
       styles.drawerNavItem,
       focused && styles.drawerNavItemActive,
       pressed && styles.drawerNavItemPressed,
+      disabled && styles.drawerNavItemDisabled,
     ]}
   >
     <View
@@ -134,10 +141,45 @@ const DrawerNavItem = ({ item, focused, navigation }) => (
 );
 
 const CustomDrawerContent = (props) => {
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState(null);
+  const logoutPending = useRef(false);
+  const mounted = useRef(true);
+  const observedUser = useRef(props.user);
+  observedUser.current = props.user;
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => { setLogoutError(null); }, [props.user]);
+  const logout = () => {
+    const owner = props.user;
+    if (!owner || logoutPending.current) return;
+    logoutPending.current = true;
+    setLoggingOut(true);
+    setLogoutError(null);
+    return runAuthMutation(async () => {
+      if (FIREBASE_AUTH.currentUser !== owner) return false;
+      await FIREBASE_AUTH.signOut();
+      return true;
+    }).then(signedOut => {
+      if (!mounted.current || !signedOut || FIREBASE_AUTH.currentUser) return;
+      let stack = props.navigation;
+      while (stack.getParent?.()) stack = stack.getParent();
+      stack.reset({ index: 0, routes: [{ name: "Root" }] });
+    }).catch(() => {
+      if (mounted.current && observedUser.current === owner && FIREBASE_AUTH.currentUser === owner) {
+        setLogoutError("We couldn't log you out. Please try again.");
+      }
+    }).finally(() => {
+      logoutPending.current = false;
+      if (mounted.current) setLoggingOut(false);
+    });
+  };
   const focusedRoute = props.state.routes[props.state.index]?.name;
   const routeNames = props.state.routeNames;
   const availableItems = drawerItems.filter((item) =>
-    routeNames.includes(item.name) && !(item.account && props.signedIn)
+    routeNames.includes(item.name) && !(item.account && props.user)
   );
   const primaryItems = availableItems.filter((item) => !item.account);
   const accountItems = availableItems.filter((item) => item.account);
@@ -164,11 +206,16 @@ const CustomDrawerContent = (props) => {
         ))}
       </View>
 
-      {accountItems.length > 0 && (
+      {(props.user || accountItems.length > 0) && (
         <>
           <Text style={styles.drawerSectionLabel}>Account</Text>
           <View style={styles.drawerNavGroup}>
-            {accountItems.map((item) => (
+            {props.user ? <DrawerNavItem
+              item={logoutItem}
+              onPress={logout}
+              disabled={loggingOut}
+              busy={loggingOut}
+            /> : accountItems.map((item) => (
               <DrawerNavItem
                 key={item.name}
                 item={item}
@@ -176,6 +223,8 @@ const CustomDrawerContent = (props) => {
                 navigation={props.navigation}
               />
             ))}
+            {logoutError && <Text accessibilityRole="alert" accessibilityLiveRegion="polite"
+              style={styles.drawerError}>{logoutError}</Text>}
           </View>
         </>
       )}
@@ -202,7 +251,7 @@ const Main = () => {
   return (
     <View style={styles.drawerContainer}>
       <Drawer.Navigator
-        drawerContent={props => <CustomDrawerContent {...props} signedIn={!!user} />}
+        drawerContent={props => <CustomDrawerContent {...props} user={user} />}
         screenOptions={{
           drawerStyle: styles.drawerShell,
           sceneContainerStyle: styles.drawerScene,
@@ -460,6 +509,8 @@ const styles = StyleSheet.create({
   drawerNavItem: { minHeight: 52, borderRadius: 6, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12 },
   drawerNavItemActive: { backgroundColor: C.soft },
   drawerNavItemPressed: { opacity: 0.75 },
+  drawerNavItemDisabled: { opacity: 0.5 },
+  drawerError: { color: C.muted, fontSize: 14, lineHeight: 21, paddingHorizontal: 12, paddingTop: 4 },
   drawerNavIcon: { width: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
   drawerNavCopy: { flex: 1, minWidth: 0 },
   drawerNavLabel: { color: C.text, fontSize: 17, lineHeight: 25 },

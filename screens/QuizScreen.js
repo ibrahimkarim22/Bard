@@ -13,6 +13,8 @@ import { CourseActivityPage, CourseButton, CourseHeading, CoursePage, CourseText
 import { QuizQuestion, QuizFooter, QuizResults } from "../course/QuizViews";
 import { QuizEvidenceModal } from "../course/QuizEvidenceModal";
 
+let courseUnlockSequence = 0;
+
 function prepare(id) {
   const play = typeof id === "string" ? PLAYS.find(candidate => candidate.id === id) : undefined;
   if (!play) return null;
@@ -46,6 +48,11 @@ export default function QuizScreen({ quizRuntime } = {}) {
     saveProgress: runtime.saveProgress, commitLevel: runtime.commitLevel,
   }), [id, prepared?.quiz.key, runtime, owner]);
   useEffect(() => () => attempt.dispose(), [attempt]);
+  const courseContinuation = useMemo(() => ({ active: true, tokens: new WeakSet() }), [attempt]);
+  useEffect(() => {
+    courseContinuation.active = true;
+    return () => { courseContinuation.active = false; };
+  }, [courseContinuation]);
   const state = useSyncExternalStore(attempt.subscribe, attempt.getSnapshot, attempt.getSnapshot);
   const scroll = useRef(null);
   const medalsOpening = useRef(false);
@@ -150,6 +157,28 @@ export default function QuizScreen({ quizRuntime } = {}) {
     return () => listener.remove();
   }, [attempt, state.attemptToken, state.index]);
   const returnToCourse = () => navigation.navigate("Main", { screen: "Course" });
+  const continueCourse = () => {
+    const current = attempt.getSnapshot();
+    const currentOwner = runtime.getOwner();
+    if (!courseContinuation.active || live.current.attempt !== attempt || courseContinuation.tokens.has(state.attemptToken)
+        || current.attemptToken !== state.attemptToken || current.result !== state.result || current.phase !== "results"
+        || current.saving || !["saved", "replay"].includes(current.result?.outcome)
+        || currentOwner?.uid !== owner?.uid || currentOwner?.generation !== owner?.generation) return;
+    courseContinuation.tokens.add(state.attemptToken);
+    const returnToMap = params => typeof navigation.popTo === "function"
+      ? navigation.popTo("Main", params) : navigation.navigate("Main", params);
+    const result = current.result;
+    const next = PLAYS.find(play => play.difficulty === result.level + 1);
+    if (result.outcome !== "saved" || !result.passed || result.total < 1 || result.correct !== result.total || !next || !currentOwner.uid) {
+      returnToMap({ screen: "Course" });
+      return;
+    }
+    returnToMap({ screen: "Course", params: { courseUnlock: {
+      id: `course-unlock-${Date.now()}-${++courseUnlockSequence}`,
+      fromPlayId: id, toPlayId: next.id,
+      owner: { uid: currentOwner.uid, generation: currentOwner.generation },
+    } } });
+  };
   const viewMedals = () => {
     const current = attempt.getSnapshot();
     if (medalsOpening.current || current.attemptToken !== state.attemptToken || current.result !== state.result
@@ -168,7 +197,7 @@ export default function QuizScreen({ quizRuntime } = {}) {
   if (state.phase === "results") return <QuizResults quiz={prepared.quiz} play={prepared.play} result={state.result} saving={state.saving} attemptToken={state.attemptToken}
       renderPage={(content, overlay) => <CoursePage scrollRef={scroll} overlay={overlay}>{content}</CoursePage>}
       onViewMedals={viewMedals} onReviewAnswers={y => scroll.current?.scrollTo?.({ y, animated: true })}
-      attempt={attempt} returnToCourse={returnToCourse} sectionLabels={prepared.labels}
+      attempt={attempt} returnToCourse={returnToCourse} onContinueCourse={continueCourse} sectionLabels={prepared.labels}
       nextAvailable={PLAYS.some(play => play.difficulty === prepared.quiz.level + 1)} />;
   return <>
     <CourseActivityPage scrollRef={scroll} footer={<QuizFooter quiz={prepared.quiz} state={state} attempt={attempt}

@@ -64,13 +64,22 @@ const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [
 ];
 const text = tree => typeof tree === 'string' || typeof tree === 'number' ? String(tree) : !tree || typeof tree !== 'object'
   ? '' : (tree.props?.children || []).flat(Infinity).map(text).join(' ');
-const flatten = style => Object.assign({}, ...[style].flat(Infinity).filter(value => value && typeof value === 'object'));
-const blurRadius = style => Number(String(flatten(style).filter || '').match(/\bblur\(\s*(\d+(?:\.\d+)?)px\s*\)/)?.[1] || 0);
+const flatten = style => Object.assign({}, ...[typeof style === 'function' ? style({ pressed: false }) : style]
+  .flat(Infinity).filter(value => value && typeof value === 'object'));
 const cardFor = (tree, play) => nodes(tree, 'Pressable').find(node => node.props.accessibilityLabel.includes(play.name));
 const viewWithId = (tree, id) => nodes(tree, 'View').find(node => node.props.testID === id);
 
 function component(file, dimensions = { width: 411, fontScale: 1 }) {
-  const React = { createElement(type, props, ...children) { const next = { ...props, children }; return typeof type === 'function' ? type(next) : { type, props: next }; } };
+  const slots = [];
+  let cursor = 0;
+  const React = {
+    createElement(type, props, ...children) { const next = { ...props, children }; return typeof type === 'function' ? type(next) : { type, props: next }; },
+    useState(initial) {
+      const index = cursor++;
+      if (!(index in slots)) slots[index] = initial;
+      return [slots[index], value => { slots[index] = value; }];
+    },
+  };
   const native = { View: 'View', Text: 'Text', Pressable: 'Pressable', Image: 'Image', useWindowDimensions: () => dimensions, StyleSheet: { create: value => value } };
   const code = babel.transformFileSync(path.join(root, file), { babelrc: false, configFile: false,
     plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
@@ -81,29 +90,28 @@ function component(file, dimensions = { width: 411, fontScale: 1 }) {
     if (name === '../shared/EditorialUI') return { EditorialText: native.Text };
     if (name === './MedalArtwork') return { __esModule: true, default: 'MedalArtwork' };
     if (name === './LockedMedal') return { __esModule: true, default: 'LockedMedal' };
+    if (name === './OpenedMedalCurtain') return { __esModule: true, default: 'OpenedMedalCurtain' };
     // Keep removed stage decoration observable if it is accidentally mounted again.
     if (name === './MedalStage') return { __esModule: true, default: 'MedalStage' };
     return name.startsWith('.') ? require(path.resolve(root, path.dirname(file), name)) : require(name);
   }, module, module.exports);
-  return module.exports.default;
+  return props => { cursor = 0; return module.exports.default(props); };
 }
 
-test('an unearned collection keeps blurred previews separate from readable titles and locked status', () => {
+test('an unearned collection shows generic curtain covers with clear play titles and locked status', () => {
   const Collection = component('course/MedalsCollection.js');
   const tree = Collection({ plays, completedLevel: 0, onOpenLesson() { assert.fail('locked medals cannot open lessons'); } });
   assert.match(text(tree), /0 of 38 medals earned/);
   assert.equal(nodes(tree, 'MedalArtwork').length, 0, 'locked cards never mount clear earned artwork');
-  assert.equal(nodes(tree, 'Image').length, 0, 'the collection delegates native previews to LockedMedal');
+  assert.equal(nodes(tree, 'Image').length, 0, 'locked items do not request their medal artwork');
   assert.equal(nodes(tree, 'LockedMedal').length, 38);
   assert.equal(nodes(tree, 'MedalStage').length, 0, 'locked cards render without a theatre stage');
   for (const play of plays) {
     const card = cardFor(tree, play);
     assert.ok(card, play.name);
-    assert.equal(blurRadius(card.props.style), 0, 'the title and status inherit no blur from the card');
-    const preview = nodes(card, 'View').find(node => blurRadius(node.props.style) > 0);
-    assert.ok(preview, 'the preview retains its additional blur');
-    assert.equal(nodes(preview, 'LockedMedal').length, 1);
-    assert.equal(nodes(preview, 'Text').length, 0, 'the play title stays outside the blurred layer');
+    for (const node of [card, ...nodes(card, 'View')]) {
+      assert.equal(flatten(node.props.style).filter, undefined, 'curtain covers and titles have no blur');
+    }
     assert.equal(card.props.disabled, true);
     assert.equal(card.props.accessibilityState.disabled, true);
     assert.equal(card.props.onPress, undefined);
@@ -112,10 +120,9 @@ test('an unearned collection keeps blurred previews separate from readable title
     assert.ok(nodes(card, 'Text').some(node => text(node) === play.name), `${play.name} remains visible on the card`);
     assert.match(text(card), /Locked/);
     const lock = nodes(card, 'LockedMedal')[0];
-    assert.deepEqual(Object.keys(lock.props).filter(key => key !== 'children').sort(), ['size', 'source'],
-      'locks receive only their source and size, with no play, account, or genre');
-    assert.equal(lock.props.source, play.medalImage, `${play.name} previews its own original source`);
-    assert.ok(lock.props.size >= 80 && lock.props.size <= 140);
+    assert.deepEqual(Object.keys(lock.props).filter(key => key !== 'children').sort(), ['size'],
+      'generic curtains receive no original artwork, play, account, or genre');
+    assert.ok(lock.props.size >= 80 && lock.props.size <= 228);
     for (const node of nodes(card, 'Text')) {
       assert.notEqual(node.props.allowFontScaling, false);
       assert.equal(node.props.numberOfLines, undefined);
@@ -157,16 +164,15 @@ test('the next available play remains locked until it is completed', () => {
   const tree = Collection({ plays, completedLevel: 1, onOpenLesson() { assert.fail('available does not mean earned'); } });
   const nextPlay = plays.find(play => play.difficulty === 2);
   const available = cardFor(tree, nextPlay);
-  assert.equal(blurRadius(available.props.style), 0, 'the available play title stays readable');
-  assert.ok(nodes(available, 'View').some(node => blurRadius(node.props.style) > 0), 'availability preserves the blurred preview');
+  assert.equal(flatten(available.props.style).filter, undefined, 'the available play title stays readable');
   assert.match(available.props.accessibilityLabel, /Locked/);
   assert.equal(available.props.disabled, true);
   assert.equal(available.props.onPress, undefined);
   assert.equal(nodes(available, 'MedalArtwork').length, 0);
   assert.equal(nodes(available, 'Image').length, 0);
   assert.equal(nodes(available, 'LockedMedal').length, 1);
-  assert.equal(nodes(available, 'LockedMedal')[0].props.source, nextPlay.medalImage,
-    'availability keeps the same heavily blurred source preview until completion');
+  assert.equal(nodes(available, 'LockedMedal')[0].props.source, undefined,
+    'availability does not pass original artwork to the curtain cover');
   assert.equal(nodes(available, 'MedalStage').length, 0, 'the next available card remains a plain locked card');
 });
 
@@ -226,66 +232,69 @@ test('collection uses a single readable column for narrow viewports or large sys
     assert.equal(flattened.width, '100%');
     assert.ok(flattened.minHeight >= 48);
     for (const play of plays) {
-      const stop = viewWithId(tree, `medal-stop-${play.id}`);
-      assert.ok(stop);
-      assert.equal(flatten(stop.props.style).width, '100%', 'large text gets the full available title width');
-      assert.equal(flatten(stop.props.style).alignSelf, 'center');
+      const item = viewWithId(tree, `medal-item-${play.id}`);
+      assert.ok(item);
+      assert.equal(flatten(item.props.style).width, '100%', 'large text gets the full available title width');
     }
   }
 });
 
-test('medal stops wind left and right in play order while curved links remain decorative', () => {
+test('borderless gallery shows two columns of original medals in play order with clear labels', () => {
   const Collection = component('course/MedalsCollection.js');
   const tree = Collection({ plays, completedLevel: 1 });
   const sorted = plays.slice().sort((a, b) => a.difficulty - b.difficulty);
   assert.deepEqual(nodes(tree, 'Pressable').map(card => card.props.accessibilityLabel.split(' medal,')[0]), sorted.map(play => play.name));
-  for (const [index, play] of sorted.entries()) {
-    const stop = viewWithId(tree, `medal-stop-${play.id}`);
-    assert.ok(stop, 'each play owns one medal stop');
-    assert.equal(flatten(stop.props.style).alignSelf, index % 2 ? 'flex-end' : 'flex-start');
-    assert.equal(flatten(stop.props.style).width, '68%');
-    const link = viewWithId(tree, `medal-link-${play.id}`);
-    if (index === sorted.length - 1) {
-      assert.equal(link, undefined, 'no trail continues below the last medal');
-      continue;
+  const gallery = viewWithId(tree, 'medal-gallery');
+  assert.ok(gallery);
+  assert.equal(flatten(gallery.props.style).flexDirection, 'row');
+  assert.equal(flatten(gallery.props.style).flexWrap, 'wrap');
+  for (const play of sorted) {
+    const item = viewWithId(tree, `medal-item-${play.id}`);
+    assert.ok(item, 'each medal keeps its own item identity');
+    assert.equal(flatten(item.props.style).width, '47%');
+    for (const node of [item, ...nodes(item, 'View'), ...nodes(item, 'Pressable')]) {
+      const style = flatten(node.props.style);
+      assert.equal(Number(style.borderWidth || 0), 0, 'the gallery has no rectangular item frames');
+      assert.ok(style.backgroundColor === undefined || style.backgroundColor === 'transparent');
     }
-    assert.ok(link);
-    assert.equal(link.props.pointerEvents, 'none');
-    assert.equal(link.props.accessible, false);
-    assert.equal(link.props.importantForAccessibility, 'no-hide-descendants');
-    const curve = viewWithId(link, 'medal-curve');
-    assert.ok(curve);
-    assert.equal(flatten(curve.props.style).marginHorizontal, '34%', 'connections meet the centers of the 68% medal stops');
-    assert.deepEqual(flatten(curve.props.style).transform, [{ scaleX: index % 2 ? -1 : 1 }]);
-    const corners = nodes(curve, 'View').map(node => flatten(node.props.style));
-    assert.ok(corners.some(style => style.borderBottomLeftRadius > 0));
-    assert.ok(corners.some(style => style.borderTopRightRadius > 0));
+    assert.ok(nodes(item, 'Text').some(node => text(node) === play.name));
+    assert.equal(viewWithId(tree, `medal-link-${play.id}`), undefined);
   }
+  assert.equal(viewWithId(tree, 'medal-tube'), undefined);
+  const medal = nodes(cardFor(tree, sorted[0]), 'MedalArtwork')[0];
+  assert.ok(medal.props.size > 140, 'the artwork is larger than the previous map presentation');
 });
 
-test('compact medal links curve within their own spacing instead of crossing clear titles', () => {
-  for (const dimensions of [{ width: 320, fontScale: 1 }, { width: 411, fontScale: 1.5 }]) {
-    const Collection = component('course/MedalsCollection.js', dimensions);
-    const tree = Collection({ plays: plays.slice(0, 3), completedLevel: 0 });
-    const links = nodes(tree, 'View').filter(node => node.props.testID?.startsWith('medal-link-'));
-    assert.equal(links.length, 2);
-    for (const link of links) {
-      assert.ok(flatten(link.props.style).height >= 48);
-      assert.equal(nodes(link, 'Text').length, 0, 'curves have their own layout slot');
-      const curve = viewWithId(link, 'medal-curve');
-      assert.equal(flatten(curve.props.style).alignSelf, 'center');
-      assert.ok(flatten(curve.props.style).width <= 64, 'the decorative curve remains within the narrow viewport');
-    }
-  }
-});
-
-test('collection medals stay within 140 points across normal and enlarged text layouts', () => {
+test('gallery artwork fits its column across normal, narrow and enlarged text layouts', () => {
   for (const dimensions of [{ width: 320, fontScale: 1 }, { width: 411, fontScale: 1 },
     { width: 411, fontScale: 1.5 }, { width: 820, fontScale: 1 }]) {
     const Collection = component('course/MedalsCollection.js', dimensions);
     const tree = Collection({ plays, completedLevel: 1, onOpenLesson() {} });
+    const availableWidth = Math.min(dimensions.width, 720) - 48;
+    const columnWidth = dimensions.width < 360 || dimensions.fontScale > 1.2 ? availableWidth : availableWidth * 0.47;
     for (const medal of [...nodes(tree, 'MedalArtwork'), ...nodes(tree, 'LockedMedal')]) {
-      assert.ok(medal.props.size >= 80 && medal.props.size <= 140, `${dimensions.width}/${dimensions.fontScale}`);
+      assert.ok(medal.props.size >= 80 && medal.props.size <= 228, `${dimensions.width}/${dimensions.fontScale}`);
+      assert.ok(medal.props.size <= columnWidth, 'artwork stays within its column');
     }
   }
+});
+
+test('embedded gallery sizes artwork from its measured columns and ignores invalid layout measurements', () => {
+  const Collection = component('course/MedalsCollection.js');
+  const props = { plays, completedLevel: 1 };
+  let tree = Collection(props);
+  const gallery = viewWithId(tree, 'medal-gallery');
+  assert.equal(typeof gallery.props.onLayout, 'function');
+  gallery.props.onLayout({ nativeEvent: { layout: { width: 314 } } });
+  tree = Collection(props);
+  for (const medal of [...nodes(tree, 'MedalArtwork'), ...nodes(tree, 'LockedMedal')]) {
+    assert.equal(medal.props.size, 147, 'a 314-point gallery has 147-point artwork columns');
+  }
+  for (const width of [0, -1, NaN, Infinity]) {
+    viewWithId(tree, 'medal-gallery').props.onLayout({ nativeEvent: { layout: { width } } });
+    tree = Collection(props);
+    assert.equal(nodes(tree, 'MedalArtwork')[0].props.size, 147);
+  }
+  viewWithId(tree, 'medal-gallery').props.onLayout({ nativeEvent: { layout: { width: 500 } } });
+  assert.equal(nodes(Collection(props), 'MedalArtwork')[0].props.size, 228, 'a wider gallery retains the artwork size cap');
 });

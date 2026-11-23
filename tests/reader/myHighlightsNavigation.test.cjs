@@ -6,7 +6,10 @@ const vm = require('node:vm');
 const babel = require('@babel/core');
 const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [...(tree.type === type ? [tree] : []), ...(tree.props?.children || []).flat(Infinity).flatMap(child => nodes(child, type))];
 function navigator({ signedIn = false, fontScale = 1, top = 24 } = {}) {
-  const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {}, useState: initial => [initial === null && signedIn ? { uid: 'test-account' } : initial, () => {}] };
+  let stateIndex = 0;
+  const React = { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), useEffect() {},
+    useState: initial => [stateIndex++ === 0 && signedIn ? { uid: 'test-account' } : initial, () => {}],
+    useRef: initial => ({ current: initial }) };
   const native = { StyleSheet: { create: styles => styles }, Platform: { OS: 'android' }, Pressable: 'Pressable', Text: 'Text', View: 'View', useWindowDimensions: () => ({fontScale}) };
   const calls = [];
   const imports = [];
@@ -65,8 +68,9 @@ test('normal drawer retains every non-video destination and each item navigates 
     assert.deepEqual(nodes(h.main, 'DrawerScreen').map(node => node.props.name), [...retained, 'SignUp', 'Login'],
       'auth routes stay mounted while sign-in publishes and signup profile writes finish');
     const buttons = nodes(h.content, 'Pressable');
-    assert.equal(buttons.length, expected.length);
-    buttons.forEach(button => button.props.onPress());
+    assert.equal(buttons.length, expected.length + (signedIn ? 1 : 0));
+    assert.equal(buttons.filter(button => button.props.accessibilityLabel === 'Log out').length, signedIn ? 1 : 0);
+    buttons.filter(button => button.props.accessibilityLabel !== 'Log out').forEach(button => button.props.onPress());
     assert.deepEqual(h.calls, expected.map(name => [name]));
     const copy = nodes(h.content, 'Text').map(node => node.props.children.join(' ')).join('\n');
     assert.doesNotMatch(copy, /Performances|How To|\bGuide\b|Stage and screen|performance notes/i);

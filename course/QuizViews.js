@@ -84,7 +84,7 @@ const outcomes = {
   "save-failed": ["Progress not saved", "Progress could not be saved. Completion has not been confirmed. Retry the save without retaking the quiz."],
 };
 
-export function QuizResults({ quiz, play, result, saving, attempt, attemptToken, returnToCourse, onViewMedals, onReviewAnswers, sectionLabels = {}, nextAvailable, renderPage }) {
+export function QuizResults({ quiz, play, result, saving, attempt, attemptToken, returnToCourse, onContinueCourse = returnToCourse, onViewMedals, onReviewAnswers, sectionLabels = {}, nextAvailable, renderPage }) {
   const reviewPosition = useRef(0);
   const [title, detail] = outcomes[result.outcome];
   const perfect = result.passed && result.total > 0 && result.correct === result.total;
@@ -123,7 +123,7 @@ export function QuizResults({ quiz, play, result, saving, attempt, attemptToken,
     <View style={styles.actions}>
       {medal && <>
         <CourseButton title="View medals" onPress={onViewMedals} />
-        <CourseButton title="Continue course" variant="secondary" onPress={returnToCourse} />
+        <CourseButton title="Continue course" variant="secondary" onPress={onContinueCourse} />
       </>}
       {result.outcome === "failed" && <CourseButton title="Review answers" onPress={() => onReviewAnswers?.(reviewPosition.current)} />}
       <CourseButton title="Retake quiz" variant={medal ? "quiet" : "secondary"} disabled={saving} onPress={() => attempt.retake(attemptToken)} />
