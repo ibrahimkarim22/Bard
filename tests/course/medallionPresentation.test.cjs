@@ -53,7 +53,7 @@ function artworkHost({ dimensions = {} } = {}) {
       ? { uri: 'asset:' + source, ...(assetDimensions.get(source) || { width: 400, height: 400 }), scale: 1, ...dimensions }
       : null,
   });
-  const native = { Image, View: 'View', Text: 'Text', StyleSheet: { create: value => value } };
+  const native = { Image, View: 'View', Text: 'Text', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: value => value } };
   const file = path.join(root, 'course/MedalArtwork.js');
   const code = babel.transformFileSync(file, { babelrc: false, configFile: false,
     plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
@@ -62,6 +62,7 @@ function artworkHost({ dimensions = {} } = {}) {
     if (name === 'react') return React;
     if (name === 'react-native') return native;
     if (name === './medalAppearance') return require('../../course/medalAppearance');
+    if (name === '../shared/editorialTheme') return require('../../shared/editorialTheme');
     if (name.startsWith('../assets/medalCollection/')) {
       const source = medalSources.get(path.basename(name));
       assert.notEqual(source, undefined, `only existing original medals may be mounted: ${name}`);
@@ -84,6 +85,59 @@ function artworkHost({ dimensions = {} } = {}) {
 }
 
 const play = { id: 'fixture', name: 'Fixture Play', medalImage: 123 };
+
+test('collection artwork shows a visible gold spinner until the native image is ready', () => {
+  const render = artworkHost(); let ready = 0;
+  const props = { play, size: 140, showLoadingIndicator: true, onReady: () => { ready++; } };
+  const pending = render(props);
+  const spinner = nodes(pending, 'ActivityIndicator')[0];
+  assert.ok(spinner, 'pending earned artwork has a loading indicator');
+  assert.equal(spinner.props.color, '#c6a663');
+  assert.equal(spinner.props.accessibilityLabel, 'Loading Fixture Play medal');
+  assert.equal(spinner.props.accessibilityRole, 'progressbar');
+  assert.equal(spinner.props.accessibilityState.busy, true);
+  assert.notEqual(flatten(pending.props.style).opacity, 0, 'the spinner parent is visible');
+  assert.notEqual(pending.props.accessibilityElementsHidden, true);
+  const hiddenArtwork = nodes(pending, 'View').find(node => flatten(node.props.style).opacity === 0);
+  assert.equal(nodes(hiddenArtwork, 'Image').length, 1, 'only the pending artwork stays hidden');
+  assert.equal(nodes(hiddenArtwork, 'ActivityIndicator').length, 0, 'the spinner is outside the hidden frame');
+  assert.equal(ready, 0);
+  nodes(pending, 'Image')[0].props.onLoad();
+  const loaded = render(props);
+  assert.equal(nodes(loaded, 'ActivityIndicator').length, 0);
+  assert.equal(nodes(loaded, 'Image').length, 1);
+  assert.equal(ready, 1);
+  for (const tree of [pending, loaded]) {
+    assert.equal(flatten(tree.props.style).width, 140);
+    assert.equal(flatten(tree.props.style).height, 140);
+  }
+  render.unmount();
+});
+
+test('failed or missing collection artwork shows its fallback without a stuck spinner', () => {
+  const render = artworkHost();
+  const props = { play, showLoadingIndicator: true };
+  nodes(render(props), 'Image')[0].props.onError();
+  for (const tree of [render(props), render({ ...props, play: { name: 'Missing Play' } })]) {
+    assert.equal(nodes(tree, 'ActivityIndicator').length, 0);
+    assert.equal(nodes(tree, 'Image').length, 0);
+    assert.equal(nodes(tree, 'Text')[0].props.children[0], 'Medal artwork unavailable');
+  }
+  render.unmount();
+});
+
+test('a replacement medal keeps its spinner when an older image finishes loading', () => {
+  const render = artworkHost();
+  const props = { play, showLoadingIndicator: true };
+  const oldImage = nodes(render(props), 'Image')[0];
+  const replacement = { ...props, play: { ...play, medalImage: 456 } };
+  const currentImage = nodes(render(replacement), 'Image')[0];
+  oldImage.props.onLoad(); oldImage.props.onError();
+  assert.equal(nodes(render(replacement), 'ActivityIndicator').length, 1);
+  currentImage.props.onLoad();
+  assert.equal(nodes(render(replacement), 'ActivityIndicator').length, 0);
+  render.unmount();
+});
 
 test('the default result medal has a 228 point square footprint and invalid sizes use that readable default', () => {
   const render = artworkHost();

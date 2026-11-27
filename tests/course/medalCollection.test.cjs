@@ -148,6 +148,7 @@ test('only completed plays mount clear earned artwork and can open lessons', () 
   assert.ok(nodes(earned, 'Text').some(node => text(node) === completed.genre));
   assert.equal(artwork.props.play, completed, 'earned cards pass the original catalogue play without replacing its source');
   assert.equal(artwork.props.play.medalImage, 'assets/medalCollection/mMND.png');
+  assert.equal(artwork.props.showLoadingIndicator, true, 'earned medal artwork shows its loading state');
   assert.notEqual(artwork.props.muted, true);
   assert.doesNotMatch(text(earned), /\bEarned\b/, 'earned cards have no redundant footer label');
   assert.match(earned.props.accessibilityLabel, /Earned/, 'earned state remains available to assistive technology');

@@ -31,7 +31,7 @@ export default function MedalsCollection({ plays, completedLevel, onOpenLesson, 
           onPress={earned && onOpenLesson ? () => onOpenLesson(play) : undefined}
           style={({ pressed }) => [styles.item, pressed && styles.pressed]}>
           {earned ? <View style={{ width: artworkSize, height: artworkSize }}>
-            <MedalArtwork play={play} size={artworkSize} />
+            <MedalArtwork play={play} size={artworkSize} showLoadingIndicator />
             <OpenedMedalCurtain />
           </View> : <LockedMedal size={artworkSize} />}
           <Text serif allowFontScaling style={[styles.name, { color: colors.text }]}>{play.name}</Text>
