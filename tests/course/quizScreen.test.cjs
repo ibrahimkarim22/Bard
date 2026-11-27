@@ -20,7 +20,7 @@ const text = tree => typeof tree === 'string' || typeof tree === 'number' ? Stri
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function deferred() { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; }
 
-function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, level = 0, uid = 'fixture-owner', write = async () => {}, quizRuntime } = {}) {
+function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, level = 0, uid = 'fixture-owner', write = async () => {}, quizRuntime, supportsPopTo = false } = {}) {
   const calls = [], actions = [], writes = [], slots = [], loaded = [], frames = [], focus = [], scrollCalls = [], timers = new Map(), backListeners = new Set(), navigationFocus = new Set();
   let nativeTag = 0, timerId = 0;
   let cursor = 0, effects = [], dirty = false;
@@ -85,6 +85,11 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
   const store = configureStore({ reducer: { course: slice.courseReducer }, preloadedState: { course: { completedLevel: level } } });
   const route = { params }, auth = { currentUser: uid ? { uid } : null };
   const profiles = new Map([[uid, level]]);
+  const storedHistory = new Map();
+  const unlockHistory = require('../../course/courseUnlockHistory').createCourseUnlockHistory({
+    getItem: async key => storedHistory.get(key) ?? null,
+    setItem: async (key, value) => { storedHistory.set(key, value); },
+  });
   let normalSource;
   const profileSnapshot = ref => ({ exists: () => true, data: () => ({ completedLevel: profiles.get(ref[2]) || 0 }),
     metadata: { fromCache: false, hasPendingWrites: false } });
@@ -100,6 +105,7 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
     },
   };
   const navigation = { navigate: (...args) => calls.push(['navigate', ...args]), push: (...args) => calls.push(['push', ...args]), goBack: () => calls.push(['back']),
+    ...(supportsPopTo ? { popTo: (...args) => calls.push(['popTo', ...args]) } : {}),
     addListener: (event, listener) => { if (event === 'focus') navigationFocus.add(listener); return () => navigationFocus.delete(listener); } };
   const Card = Object.assign(function Card() {}, { Title: 'CardTitle' });
   const dispatch = action => { actions.push(action); return store.dispatch(action); };
@@ -121,6 +127,7 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
     'react-redux': { useSelector: select => select(store.getState()), useDispatch: () => dispatch },
     '../Progress/CourseSlice': slice, '../shared/localPlayService': { PLAYS: plays, getLocalPlayEntry: id => entries.find(entry => entry.slug === id) },
     '../firebaseConfig': { FIRESTORE_DB: 'fixture-db', FIREBASE_AUTH: auth },
+    './normalCourseUnlockHistory': { normalCourseUnlockHistory: unlockHistory },
     'firebase/firestore': firestore,
     'firebase/auth': { onAuthStateChanged: () => () => {} },
   }).default;
@@ -496,6 +503,112 @@ test('View medals pushes the existing Home collection once and can reopen after 
   h.returnFocus(); h.button('View medals').props.onPress();
   assert.equal(h.calls.length, 2); assert.equal(h.writes.length, 1);
   h.button('Retake quiz').props.onPress(); open.props.onPress(); assert.equal(h.calls.length, 2, 'a stale result cannot open the collection after Retake');
+});
+
+test('Continue course carries one serializable unlock from the earned play to its exact next play', async () => {
+  const h = host({ plays: [play(), play('fixture-b', questions(), 2), play('fixture-c', questions(), 3)] });
+  h.answerAll(); await h.button('Finish quiz').props.onPress();
+  const continueCourse = h.button('Continue course');
+  continueCourse.props.onPress(); continueCourse.props.onPress();
+  h.returnFocus(); h.button('Continue course').props.onPress();
+  assert.equal(h.calls.length, 1, 'rapid taps and returning to the result cannot replay its unlock');
+  const [method, destination, options] = h.calls[0];
+  assert.equal(method, 'navigate'); assert.equal(destination, 'Main'); assert.equal(options.screen, 'Course');
+  const unlock = options.params?.courseUnlock;
+  assert.ok(unlock, 'a confirmed new completion supplies a course-map handoff');
+  assert.equal(typeof unlock.id, 'string'); assert.ok(unlock.id.length > 0);
+  assert.deepEqual({ ...unlock, id: 'request-id' }, {
+    id: 'request-id', fromPlayId: 'fixture-a', toPlayId: 'fixture-b', owner: { uid: 'fixture-owner', generation: 0 },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(unlock)), unlock, 'navigation state contains only serializable values');
+  h.route.params = { id: 'fixture-b' }; h.answerAll(); await h.button('Finish quiz').props.onPress();
+  h.button('Continue course').props.onPress();
+  const nextUnlock = h.calls[1][2].params.courseUnlock;
+  assert.notEqual(nextUnlock.id, unlock.id, 'separate newly earned plays have distinct requests');
+  assert.equal(nextUnlock.fromPlayId, 'fixture-b'); assert.equal(nextUnlock.toPlayId, 'fixture-c');
+  assert.equal(h.writes.length, 2);
+});
+
+test('Continue course pops to the existing Main screen for a new completion, replay, or final play', async () => {
+  for (const scenario of [
+    { plays: [play(), play('fixture-b', questions(), 2)], unlocked: true },
+    { level: 1, plays: [play(), play('fixture-b', questions(), 2)], unlocked: false },
+    { plays: [play()], unlocked: false },
+  ]) {
+    const h = host({ ...scenario, supportsPopTo: true });
+    h.answerAll(); await h.button('Finish quiz').props.onPress();
+    const continueCourse = h.button('Continue course');
+    continueCourse.props.onPress(); continueCourse.props.onPress();
+    assert.equal(h.calls.length, 1, 'one return action retires the result without adding another Main');
+    assert.equal(h.calls[0][0], 'popTo'); assert.equal(h.calls[0][1], 'Main');
+    assert.equal(h.calls[0][2].screen, 'Course');
+    if (scenario.unlocked) {
+      assert.equal(h.calls[0][2].params?.courseUnlock?.fromPlayId, 'fixture-a');
+      assert.equal(h.calls[0][2].params?.courseUnlock?.toPlayId, 'fixture-b');
+    } else assert.deepEqual(h.calls[0][2], { screen: 'Course' });
+  }
+});
+
+test('Back to course stays a plain return even after a newly earned completion', async () => {
+  const h = host({ plays: [play(), play('fixture-b', questions(), 2)], supportsPopTo: true });
+  h.answerAll(); await h.button('Finish quiz').props.onPress();
+  h.button('Back to course').props.onPress();
+  assert.deepEqual(h.calls, [['navigate', 'Main', { screen: 'Course' }]]);
+});
+
+test('Continue course returns without an unlock for replays, the final play, or a difficulty gap', async () => {
+  for (const scenario of [
+    { level: 1, plays: [play(), play('fixture-b', questions(), 2)] },
+    { plays: [play()] },
+    { plays: [play(), play('fixture-c', questions(), 3)] },
+  ]) {
+    const h = host(scenario); h.answerAll(); await h.button('Finish quiz').props.onPress();
+    h.button('Continue course').props.onPress();
+    assert.deepEqual(h.calls, [['navigate', 'Main', { screen: 'Course' }]]);
+  }
+});
+
+test('retained Continue course handlers cannot navigate after their result or account has retired', async () => {
+  for (const change of ['retake', 'play', 'content', 'account', 'unmount']) {
+    const h = host({ plays: [play(), play('fixture-b', questions(), 2)] });
+    h.answerAll(); await h.button('Finish quiz').props.onPress();
+    const oldContinue = h.button('Continue course');
+    if (change === 'retake') h.button('Retake quiz').props.onPress();
+    else if (change === 'play') { h.route.params = { id: 'fixture-b' }; h.render(); }
+    else if (change === 'content') h.plays[0].quiz = [];
+    else if (change === 'account') h.auth.currentUser = { uid: 'another-fixture-owner' };
+    else h.unmount();
+    oldContinue.props.onPress();
+    assert.deepEqual(h.calls, [], change + ' retires the prior result action');
+  }
+});
+
+test('Continue course rejects a previous account generation even when the same uid returns', async () => {
+  const { createQuizRuntime } = require('../../course/quizRuntime');
+  let uid = 'preview-owner', observeAuth, level = 0;
+  const runtime = createQuizRuntime({ getUid: () => uid, subscribeAuth: listener => { observeAuth = listener; return () => {}; },
+    getLevel: () => level, saveProgress: async () => Object.freeze({ completedLevel: 1, advanced: true }),
+    commitLevel: next => { level = next; } });
+  const h = host({ quizRuntime: runtime, plays: [play(), play('fixture-b', questions(), 2)] });
+  h.answerAll(); await h.button('Finish quiz').props.onPress();
+  const oldContinue = h.button('Continue course');
+  uid = 'another-owner'; observeAuth({ uid }); uid = 'preview-owner'; observeAuth({ uid });
+  oldContinue.props.onPress();
+  assert.deepEqual(h.calls, []);
+  h.unmount(); runtime.dispose();
+});
+
+test('a failed save supplies no unlock until its same-result retry confirms the completion', async () => {
+  let writes = 0;
+  const h = host({ plays: [play(), play('fixture-b', questions(), 2)],
+    write: async () => { if (++writes === 1) throw new Error('fixture offline'); } });
+  h.answerAll(); await h.button('Finish quiz').props.onPress();
+  assert.equal(h.button('Continue course'), undefined);
+  h.button('Back to course').props.onPress();
+  assert.deepEqual(h.calls.pop(), ['navigate', 'Main', { screen: 'Course' }]);
+  await h.button('Retry save').props.onPress(); h.button('Continue course').props.onPress();
+  assert.equal(h.calls.length, 1); assert.equal(h.calls[0][2].params?.courseUnlock?.toPlayId, 'fixture-b');
+  assert.equal(h.writes.length, 2);
 });
 
 test('perfect results keep the full-viewport shower outside the scrollable answer review', async () => {

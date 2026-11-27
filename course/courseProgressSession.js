@@ -8,7 +8,7 @@ function failure(code) {
 
 // This is an account-scoped in-memory view of the existing Firestore profile.
 // It neither persists another copy nor writes during hydration or refresh.
-function createCourseProgressSession({ getUid, subscribeAuth, transport }) {
+function createCourseProgressSession({ getUid, subscribeAuth, transport, onAdvance = () => {} }) {
   const listeners = new Set();
   let active = false, lifetime = 0, unsubscribeAuth = null, watcher = null;
   let owner = Object.freeze({ uid: normalizedUid(getUid()), generation: 0 });
@@ -152,6 +152,11 @@ function createCourseProgressSession({ getUid, subscribeAuth, transport }) {
       if (!result || typeof result !== 'object' || Array.isArray(result) || !validLevel(result.completedLevel)
           || result.completedLevel < level || typeof result.advanced !== 'boolean'
           || result.advanced && result.completedLevel !== level) throw failure('COURSE_INVALID_ACKNOWLEDGMENT');
+      if (result.advanced) {
+        // Presentation history is best effort; the account write is confirmed.
+        try { await onAdvance(uid, level); } catch (_) {}
+        if (!current(token)) throw failure('COURSE_CANCELLED');
+      }
       acknowledgedLevel = Math.max(acknowledgedLevel ?? 0, result.completedLevel);
       return Object.freeze({ completedLevel: result.completedLevel, advanced: result.advanced });
     },

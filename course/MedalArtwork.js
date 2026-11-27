@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
+import { EDITORIAL_COLORS as C } from "../shared/editorialTheme";
 import { getMedalAppearance } from "./medalAppearance";
 
 // Source-pixel measurements of the original artwork's fastening holes. The three
@@ -72,7 +73,7 @@ function MedalMount({ geometry, diameter, strap }) {
   </View>;
 }
 
-export default function MedalArtwork({ play, size = 228, onReady }) {
+export default function MedalArtwork({ play, size = 228, onReady, showLoadingIndicator = false }) {
   const source = play?.medalImage;
   const appearance = getMedalAppearance(play?.genre);
   const request = useMemo(() => {
@@ -117,16 +118,26 @@ export default function MedalArtwork({ play, size = 228, onReady }) {
   const pending = status === "pending";
   const geometry = mounts.get(source);
   const mounted = geometry && request.asset?.width === geometry.width && request.asset?.height === geometry.height;
-  return <View accessibilityElementsHidden={pending} importantForAccessibility={pending ? "no-hide-descendants" : "auto"}
+  const artwork = <View accessibilityElementsHidden={pending} importantForAccessibility={pending ? "no-hide-descendants" : "auto"}
     style={[styles.frame, footprint, { opacity: pending ? 0 : 1 }]}>
     <Image key={source} source={source} resizeMode="contain" fadeDuration={0} accessibilityLabel={label} accessible
       onLoad={() => settle("loaded")} onError={() => settle("failed")} style={styles.artwork} />
     {mounted && <MedalMount geometry={geometry} diameter={diameter} strap={appearance.strap} />}
   </View>;
+  if (!showLoadingIndicator) return artwork;
+  return <View style={[styles.frame, footprint]}>
+    {artwork}
+    {pending && <View pointerEvents="none" style={styles.loading}>
+      <ActivityIndicator size="small" color={C.gold} accessible accessibilityRole="progressbar"
+        accessibilityLabel={`Loading ${label}`} accessibilityState={{ busy: true }} />
+    </View>}
+  </View>;
 }
 
 const styles = StyleSheet.create({
   frame: { alignSelf: "center", position: "relative" },
+  loading: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center", justifyContent: "center" },
   artwork: { width: "100%", height: "100%", aspectRatio: 1 },
   mount: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   connector: { position: "absolute", backgroundColor: "#bca16b", borderColor: "#d1bb87", borderWidth: 0.6 },

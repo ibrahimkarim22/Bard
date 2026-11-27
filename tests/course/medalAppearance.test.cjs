@@ -60,7 +60,7 @@ function lockedComponent() {
     return typeof type === 'function' ? type(next) : { type, props: next };
   } };
   const native = { View: 'View', Text: 'Text', Image: 'Image', StyleSheet: { create: value => value } };
-  Object.defineProperty(native, 'Animated', { get() { throw new Error('locked medal previews must never animate into clear artwork'); } });
+  Object.defineProperty(native, 'Animated', { get() { throw new Error('locked medal curtains must stay closed and static'); } });
   const file = path.join(root, 'course/LockedMedal.js');
   const code = babel.transformFileSync(file, { babelrc: false, configFile: false,
     plugins: ['@babel/plugin-transform-react-jsx', '@babel/plugin-transform-modules-commonjs'] }).code;
@@ -68,7 +68,7 @@ function lockedComponent() {
   vm.runInThisContext('(function(require,module,exports){' + code + '\n})', { filename: file })(name => {
     if (name === 'react') return React;
     if (name === 'react-native') return native;
-    throw new Error('locked medal previews must use only the native Image: ' + name);
+    throw new Error('locked medal curtains must use native Views only: ' + name);
   }, module, module.exports);
   return module.exports.default;
 }
@@ -78,33 +78,47 @@ const nodes = (tree, type) => !tree || typeof tree !== 'object' ? [] : [
 ];
 const flatten = style => Object.assign({}, ...[style].flat(Infinity).filter(value => value && typeof value === 'object'));
 
-test('locked medals always heavily blur their actual source and use a question mark only when the source is missing', () => {
+test('locked medals use an opaque closed two-panel curtain with no underlying artwork', () => {
   const LockedMedal = lockedComponent();
-  for (const size of [140, 228]) {
-    for (const source of [17, { uri: 'actual-medal.png' }]) {
-      const locked = LockedMedal({ size, source });
-      const images = nodes(locked, 'Image');
-      assert.equal(images.length, 1, 'each locked medal shows exactly one native preview without a raw alternative');
-      const preview = images[0];
-      assert.equal(preview.props.source, source, 'the actual source passes through unchanged');
-      assert.ok(Number.isFinite(preview.props.blurRadius) && preview.props.blurRadius >= 24,
-        'the initial native image is already very heavily blurred');
-      assert.equal(preview.props.fadeDuration, 0, 'no image fade can reveal an unblurred intermediate frame');
-      assert.equal(preview.props.resizeMode, 'contain');
-      assert.equal(flatten(preview.props.style).width, size);
-      assert.equal(flatten(preview.props.style).height, size);
-      assert.equal(nodes(locked, 'Text').length, 0, 'a valid source never uses the question-mark fallback');
-      assert.equal(flatten(locked.props.style).width, size);
-      assert.equal(flatten(locked.props.style).height, size);
-      assert.equal(locked.props.pointerEvents, 'none');
-      assert.equal(locked.props.accessible, false, 'the card carries the Locked accessibility label');
-      assert.equal(locked.props.accessibilityElementsHidden, true);
-      assert.equal(locked.props.importantForAccessibility, 'no-hide-descendants');
+  for (const size of [64, 140, 169, 228]) {
+    const locked = LockedMedal({ size });
+    const frame = flatten(locked.props.style);
+    assert.equal(frame.width, size);
+    assert.equal(frame.height, size);
+    assert.match(frame.backgroundColor, /^#[0-9a-f]{6}$/i, 'the entire reserved square has an opaque cloth background');
+    assert.equal(nodes(locked, 'Image').length, 0, 'locked artwork is never requested or mounted beneath the curtain');
+    assert.equal(nodes(locked, 'Text').length, 0, 'the generic curtain contains no play data or fallback label');
+    const panels = nodes(locked, 'View').filter(node => node.props.testID === 'locked-curtain-left' || node.props.testID === 'locked-curtain-right');
+    assert.equal(panels.length, 2);
+    const left = flatten(panels.find(node => node.props.testID === 'locked-curtain-left').props.style);
+    const right = flatten(panels.find(node => node.props.testID === 'locked-curtain-right').props.style);
+    assert.equal(left.left, 0);
+    assert.equal(right.right, 0);
+    for (const panel of [left, right]) {
+      assert.equal(panel.width, '50%', 'both closed panels meet at the center');
+      assert.equal(panel.height, '100%');
+      assert.equal(panel.top, 0);
     }
-    for (const source of [undefined, null]) {
-      const fallback = LockedMedal({ size, source });
-      assert.equal(nodes(fallback, 'Image').length, 0, 'a missing source does not mount a native image');
-      assert.deepEqual(nodes(fallback, 'Text').map(node => node.props.children.flat(Infinity).join('')), ['?']);
+    for (const view of nodes(locked, 'View')) {
+      const style = flatten(view.props.style);
+      assert.match(style.backgroundColor, /^#[0-9a-f]{6}$/i, 'every curtain layer is opaque');
+      assert.ok(style.opacity === undefined || style.opacity === 1);
+      assert.equal(style.filter, undefined);
+      assert.equal(view.props.source, undefined);
     }
+    assert.equal(locked.props.pointerEvents, 'none');
+    assert.equal(locked.props.accessible, false, 'the surrounding item announces its locked state');
+    assert.equal(locked.props.accessibilityElementsHidden, true);
+    assert.equal(locked.props.importantForAccessibility, 'no-hide-descendants');
+  }
+});
+
+test('locked curtain invalid sizes use the same 140-point square footprint', () => {
+  const LockedMedal = lockedComponent();
+  for (const size of [undefined, null, NaN, Infinity, 0, -1, 63, '169', {}, true]) {
+    const locked = LockedMedal({ size });
+    assert.equal(flatten(locked.props.style).width, 140);
+    assert.equal(flatten(locked.props.style).height, 140);
+    assert.equal(nodes(locked, 'Image').length, 0);
   }
 });

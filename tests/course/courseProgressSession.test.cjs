@@ -24,6 +24,7 @@ function create(options = {}) {
     getUid: () => h.uid,
     subscribeAuth(notify) { h.auth = notify; return () => { h.authStops++; }; },
     transport,
+    onAdvance: h.onAdvance,
   });
   h.session.subscribe(() => h.notices.push(h.session.getSnapshot()));
   h.ready = (level = 1) => { h.session.start(); h.observers.at(-1).next(server(level)); };
@@ -179,6 +180,44 @@ test('a confirmed save acknowledgment is required before committing completion',
   assert.equal(h.session.commitLevel(99), false); assert.equal(h.session.getLevel(), 1);
 });
 
+test('a genuine advance awaits its account notification before confirming success', async () => {
+  const gate = deferred(), advances = [];
+  const h = create({ onAdvance: (uid, level) => { advances.push({ uid, level }); return gate.promise; } }); h.ready(0);
+  let settled = false;
+  const pending = h.session.saveProgress('owner-a', 1).then(result => { settled = true; return result; });
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(advances, [{ uid: 'owner-a', level: 1 }]);
+  assert.equal(settled, false); assert.equal(h.session.commitLevel(1), false);
+  gate.resolve();
+  assert.deepEqual(await pending, { completedLevel: 1, advanced: true });
+  assert.equal(h.session.commitLevel(1), true);
+});
+
+test('a replay acknowledgment confirms progress without an advance notification', async () => {
+  const advances = [], h = create({ save: async () => ack(3, false), onAdvance: (...args) => advances.push(args) }); h.ready(3);
+  assert.deepEqual(await h.session.saveProgress('owner-a', 1), { completedLevel: 3, advanced: false });
+  assert.deepEqual(advances, []); assert.equal(h.session.commitLevel(3), true);
+});
+
+test('an account change while an advance notification is pending retires its acknowledgment', async () => {
+  const gate = deferred(), advances = [];
+  const h = create({ onAdvance: (uid, level) => { advances.push({ uid, level }); return gate.promise; } }); h.ready(0);
+  const pending = h.session.saveProgress('owner-a', 1);
+  await Promise.resolve();
+  assert.deepEqual(advances, [{ uid: 'owner-a', level: 1 }]);
+  h.switch('owner-b'); h.switch('owner-a'); h.observers.at(-1).next(server(0));
+  gate.resolve();
+  await assert.rejects(pending, { code: 'COURSE_CANCELLED' });
+  assert.equal(h.session.commitLevel(1), false); assert.equal(h.session.getLevel(), 0);
+});
+
+test('an advance notification failure preserves a confirmed save', async () => {
+  const advances = [], h = create({ onAdvance: async (uid, level) => { advances.push({ uid, level }); throw new Error('storage unavailable'); } }); h.ready(0);
+  assert.deepEqual(await h.session.saveProgress('owner-a', 1), { completedLevel: 1, advanced: true });
+  assert.deepEqual(advances, [{ uid: 'owner-a', level: 1 }]);
+  assert.equal(h.session.commitLevel(1), true); assert.equal(h.session.getLevel(), 1);
+});
+
 test('save acknowledgment can recover read failure and never lower newer confirmed progress', async () => {
   const gate = deferred(), h = create({ save: () => gate.promise }); h.ready(0);
   const pending = h.session.saveProgress('owner-a', 1);
@@ -189,21 +228,23 @@ test('save acknowledgment can recover read failure and never lower newer confirm
 
 test('failed or malformed acknowledgments cannot grant local authority', async () => {
   for (const value of [undefined, null, {}, ack(0), ack(3), ack(1, 'true'), { completedLevel: '1', advanced: true }]) {
-    const h = create({ save: async () => value }); h.ready(0);
+    const advances = [], h = create({ save: async () => value, onAdvance: (...args) => advances.push(args) }); h.ready(0);
     await assert.rejects(h.session.saveProgress('owner-a', 1), { code: 'COURSE_INVALID_ACKNOWLEDGMENT' });
     assert.equal(h.session.commitLevel(1), false); assert.equal(h.session.getLevel(), 0);
+    assert.deepEqual(advances, []);
   }
   const h = create({ save: async () => { throw new Error('fixture failure'); } }); h.ready(0);
   await assert.rejects(h.session.saveProgress('owner-a', 1)); assert.equal(h.session.commitLevel(1), false);
 });
 
 test('transaction predicates and delayed acknowledgments lose authority on ownership changes', async () => {
-  const gate = deferred(), h = create({ save: () => gate.promise }); h.ready(0);
+  const gate = deferred(), advances = [], h = create({ save: () => gate.promise, onAdvance: (...args) => advances.push(args) }); h.ready(0);
   const pending = h.session.saveProgress('owner-a', 1), current = h.saves[0].current;
   assert.equal(current(), true); h.switch('owner-b'); assert.equal(current(), false);
   h.switch('owner-a'); h.observers.at(-1).next(server(0)); assert.equal(current(), false);
   gate.resolve(ack(1)); await assert.rejects(pending, { code: 'COURSE_CANCELLED' });
   assert.equal(h.session.commitLevel(1), false); assert.equal(h.session.getLevel(), 0);
+  assert.deepEqual(advances, []);
 });
 
 test('stop is idempotent and retires observers, refreshes and saves before restart', async () => {

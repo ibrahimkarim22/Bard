@@ -199,16 +199,16 @@ const HomeScreen = ({ navigation, route }) => {
     edges={["top"]} style={styles.loadingScreen}>
     {focused && !curtain.active && <StatusBar barStyle="light-content" backgroundColor={C.background} />}
     <View style={[styles.fixedHeader, styles.noticeHeader]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
+        onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
+        <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
+      </Pressable>
       <View style={styles.profileCopy}>
         <EditorialText serif accessibilityRole="header" style={styles.userName}>Home</EditorialText>
         {currentUser && <Pressable accessibilityRole="button" accessibilityLabel="Edit profile" onPress={editProfile} style={styles.editProfile}>
           <FontAwesomeIcon icon={faPen} size={16} color={C.gold} accessible={false} />
         </Pressable>}
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
-        onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
-        <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
-      </Pressable>
     </View>
     <CourseProgressNotice status={accountProgress.status} onRetry={retryAccountProgress} colors={C} embedded />
   </SafeAreaView>;
@@ -218,6 +218,10 @@ const HomeScreen = ({ navigation, route }) => {
       {focused && !curtain.active && <StatusBar barStyle="light-content" backgroundColor={C.background} />}
       <View testID="home-fixed-header" style={styles.fixedHeader}>
         <View style={styles.profileRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
+            onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
+            <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
+          </Pressable>
           <View style={[styles.avatarWrap, { height: avatarSize, width: avatarSize }]}>{renderAvatar(avatarSize)}</View>
           <View style={styles.profileCopy}>
             <EditorialText serif accessibilityRole="header" style={[styles.userName, isCompact && styles.compactUserName]}>
@@ -228,10 +232,6 @@ const HomeScreen = ({ navigation, route }) => {
               <FontAwesomeIcon icon={faPen} size={16} color={C.gold} accessible={false} />
             </Pressable>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Open navigation menu"
-            onPress={() => navigation.openDrawer()} style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}>
-            <FontAwesomeIcon icon={faBars} size={20} color={C.text} />
-          </Pressable>
         </View>
         <View accessibilityRole="tablist" accessibilityLabel="Home sections" style={styles.tabRow}>
           {tabs.map(tab => <Pressable key={tab} accessibilityRole="tab" accessibilityLabel={tab}
@@ -337,7 +337,8 @@ const styles = StyleSheet.create({
   profileCopy: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
   userName: { color: C.text, fontSize: 25, lineHeight: 33, flexShrink: 1 },
   compactUserName: { fontSize: 22, lineHeight: 30 },
-  menuButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', marginRight: -8 },
+  menuButton: { minWidth: 48, minHeight: 48, flexShrink: 0,
+    alignItems: 'center', justifyContent: 'center', marginLeft: -12 },
   editProfile: { minHeight: 48, minWidth: 48, flexShrink: 0, alignItems: 'center', justifyContent: 'center', padding: 8 },
   userEmail: { color: C.text, fontSize: 17, lineHeight: 26 },
   logoutButton: { alignItems: "center", alignSelf: "flex-start", flexDirection: "row", gap: 10,
