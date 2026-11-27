@@ -63,6 +63,58 @@ test('consumed checkpoints survive a new history instance and stay separate for 
   assert.equal(adapter.values.size, 2);
 });
 
+test('a confirmed new award re-arms an old checkpoint after course progress was reset', async () => {
+  const adapter = storage(), previous = create(adapter);
+  await previous.acknowledge('reader', 4);
+  const history = create(adapter);
+  await history.recordAdvance('reader', 1);
+  assert.deepEqual(history.getSnapshot('reader'), { status: 'ready', seenLevel: 0 });
+  const restarted = create(adapter); await restarted.load('reader');
+  assert.equal(restarted.getSnapshot('reader').seenLevel, 0, 'the re-earned medal stays pending across restart');
+  await restarted.acknowledge('reader', 1);
+  const revisited = create(adapter); await revisited.load('reader');
+  assert.equal(revisited.getSnapshot('reader').seenLevel, 1, 'its newly shown unlock is consumed normally');
+});
+
+test('re-arming waits for cold hydration instead of restoring the old seen checkpoint', async () => {
+  const read = deferred(), writes = [];
+  const history = create({ getItem: () => read.promise, async setItem(key, value) { writes.push(value); } });
+  const pending = history.recordAdvance('reader', 1);
+  assert.equal(history.getSnapshot('reader').status, 'loading');
+  read.resolve('8'); await pending;
+  assert.equal(history.getSnapshot('reader').seenLevel, 0);
+  assert.deepEqual(writes, ['0']);
+});
+
+test('re-arming replaces an old stored receipt even when its initial read fails', async () => {
+  const adapter = storage();
+  adapter.values.set('@bard/course-unlock-seen/v2/reader', '1');
+  let failRead = true;
+  adapter.getItem = async key => {
+    if (failRead) { failRead = false; throw new Error('temporarily unavailable'); }
+    return adapter.values.get(key) ?? null;
+  };
+  const history = create(adapter); await history.recordAdvance('reader', 1);
+  const restarted = create(adapter); await restarted.load('reader');
+  assert.equal(restarted.getSnapshot('reader').seenLevel, 0, 'the old receipt cannot return after restart');
+});
+
+test('a re-armed checkpoint persists after a slow earlier acknowledgment finishes writing', async () => {
+  const adapter = storage(), firstWrite = deferred();
+  adapter.setItem = async (key, value) => {
+    adapter.writes.push({ key, value });
+    if (value === '4') await firstWrite.promise;
+    adapter.values.set(key, value);
+  };
+  const history = create(adapter);
+  const oldReceipt = history.acknowledge('reader', 4); await tick();
+  const newAward = history.recordAdvance('reader', 1); await tick();
+  assert.equal(history.getSnapshot('reader').seenLevel, 0);
+  firstWrite.resolve(); await Promise.all([oldReceipt, newAward]);
+  const restarted = create(adapter); await restarted.load('reader');
+  assert.equal(restarted.getSnapshot('reader').seenLevel, 0, 'the late old write cannot suppress the new award');
+});
+
 test('acknowledgment advances immediately and late hydration cannot regress or overwrite a higher floor', async () => {
   const read = deferred(), values = new Map(), writes = [];
   const history = create({ getItem: () => read.promise,
@@ -118,6 +170,8 @@ test('read and write failures resolve safely while retaining the in-memory seen 
   assert.deepEqual(history.getSnapshot('reader'), { status: 'ready', seenLevel: 3 });
   await history.acknowledge('reader', 1);
   assert.equal(history.getSnapshot('reader').seenLevel, 3);
+  await history.recordAdvance('reader', 1);
+  assert.equal(history.getSnapshot('reader').seenLevel, 0, 'storage failures still leave the new award pending in memory');
 });
 
 test('malformed storage and invalid acknowledgment values never create a seen checkpoint', async () => {
@@ -130,6 +184,7 @@ test('malformed storage and invalid acknowledgment values never create a seen ch
   await history.load('reader');
   const before = history.getSnapshot('reader');
   for (const invalid of [-1, 0.5, '4', null, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) await history.acknowledge('reader', invalid);
+  for (const invalid of [0, -1, 0.5, '4', null, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) await history.recordAdvance('reader', invalid);
   assert.equal(history.getSnapshot('reader'), before);
   assert.equal(adapter.writes.length, 0);
   await history.load(null); await history.acknowledge(null, 4);

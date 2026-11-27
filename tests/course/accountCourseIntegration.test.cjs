@@ -38,9 +38,15 @@ test('legacy unowned course cache is neither restored nor persisted over account
 function normal() {
   const auth = { currentUser: { uid: 'fixture-a' } }, db = {};
   const authListeners = new Set(), observers = [], reads = [], transactions = [];
+  const stored = new Map();
+  const history = require('../../course/courseUnlockHistory').createCourseUnlockHistory({
+    getItem: async key => stored.get(key) ?? null,
+    setItem: async (key, value) => { stored.set(key, value); },
+  });
   let remote = 2;
   const service = load('course/normalCourseProgress.js', {
     '../firebaseConfig': { FIREBASE_AUTH: auth, FIRESTORE_DB: db },
+    './normalCourseUnlockHistory': { normalCourseUnlockHistory: history },
     'firebase/auth': { onAuthStateChanged(actual, notify) { assert.equal(actual, auth); authListeners.add(notify); return () => authListeners.delete(notify); } },
     'firebase/firestore': {
       doc: (actual, collection, uid) => { assert.equal(actual, db); assert.equal(collection, 'users'); return { uid }; },
@@ -56,7 +62,7 @@ function normal() {
   function snapshot(level) { return { exists: () => true, data: () => ({ completedLevel: level, profileImage: 'fixture-preserved' }),
     metadata: { fromCache: false, hasPendingWrites: false } }; }
   const emit = level => observers.at(-1).next(snapshot(level));
-  return { service, auth, observers, reads, transactions, emit, getRemote: () => remote,
+  return { service, auth, history, observers, reads, transactions, emit, getRemote: () => remote,
     switchOwner(uid) { auth.currentUser = uid ? { uid } : null; for (const notify of authListeners) notify(auth.currentUser); } };
 }
 
@@ -86,6 +92,19 @@ test('normal adapter uses the current account transaction and rejects a retired 
   await assert.rejects(runtime.saveProgress('fixture-a', 4), error => error.code === 'COURSE_CANCELLED');
   assert.throws(() => runtime.commitLevel(3), error => error.code === 'COURSE_CANCELLED');
   assert.equal(h.transactions.length, 1); assert.equal(h.service.getLevel(), 1);
+  h.service.stop();
+});
+
+test('normal adapter rearms a consumed presentation only for a confirmed new account advance', async () => {
+  const h = normal();
+  await h.history.acknowledge('fixture-a', 3); await h.history.acknowledge('fixture-b', 7);
+  h.service.start(); h.emit(2);
+  assert.deepEqual(await h.service.saveProgress('fixture-a', 3), { completedLevel: 3, advanced: true });
+  assert.equal(h.history.getSnapshot('fixture-a').seenLevel, 2, 'the earned presentation is available before save success');
+  assert.equal(h.history.getSnapshot('fixture-b').seenLevel, 7);
+  await h.history.acknowledge('fixture-a', 3);
+  assert.deepEqual(await h.service.saveProgress('fixture-a', 3), { completedLevel: 3, advanced: false });
+  assert.equal(h.history.getSnapshot('fixture-a').seenLevel, 3, 'replaying a completed play cannot rearm its presentation');
   h.service.stop();
 });
 

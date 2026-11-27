@@ -20,7 +20,7 @@ function createCourseUnlockHistory(storage) {
       // actual displayed unlock; old markers must not suppress that reward.
       key: `@bard/course-unlock-seen/v2/${encodeURIComponent(uid)}`,
       snapshot: Object.freeze({ status: 'loading', seenLevel: 0 }),
-      load: null, writes: Promise.resolve(), persistedLevel: 0,
+      load: null, writes: Promise.resolve(), persistedLevel: null,
     });
     return accounts.get(uid);
   };
@@ -45,23 +45,35 @@ function createCourseUnlockHistory(storage) {
       });
     return entry.load;
   };
-  const acknowledge = (uid, completedLevel) => {
-    if (!validUid(uid) || !validLevel(completedLevel)) return Promise.resolve(getSnapshot(uid));
-    const entry = account(uid);
-    publish(entry, entry.snapshot.status, Math.max(entry.snapshot.seenLevel, completedLevel));
-    const hydrated = load(uid);
+  const persist = (entry, hydrated = Promise.resolve()) => {
     // Wait for the cold read before writing, then serialize writes per account.
     // Both the read and an earlier acknowledgment may know a higher floor.
     entry.writes = entry.writes.then(() => hydrated).then(async () => {
       const level = entry.snapshot.seenLevel;
-      if (level <= entry.persistedLevel) return;
+      if (level === entry.persistedLevel) return;
       await storage.setItem(entry.key, JSON.stringify(level));
       entry.persistedLevel = level;
     }).catch(() => {});
     return entry.writes.then(() => entry.snapshot);
   };
+  const acknowledge = (uid, completedLevel) => {
+    if (!validUid(uid) || !validLevel(completedLevel)) return Promise.resolve(getSnapshot(uid));
+    const entry = account(uid);
+    publish(entry, entry.snapshot.status, Math.max(entry.snapshot.seenLevel, completedLevel));
+    return persist(entry, load(uid));
+  };
+  const recordAdvance = async (uid, completedLevel) => {
+    if (!validUid(uid) || !validLevel(completedLevel) || completedLevel === 0) return getSnapshot(uid);
+    // A confirmed new award can follow an account progress reset. Its previous
+    // presentation receipt must not suppress the newly earned unlock. Hydrate
+    // first so an older stored receipt cannot overwrite the re-armed checkpoint.
+    await load(uid);
+    const entry = account(uid);
+    publish(entry, 'ready', Math.min(entry.snapshot.seenLevel, completedLevel - 1));
+    return persist(entry);
+  };
   return Object.freeze({
-    getSnapshot, load, acknowledge,
+    getSnapshot, load, acknowledge, recordAdvance,
     subscribe(notify) { listeners.add(notify); return () => listeners.delete(notify); },
   });
 }

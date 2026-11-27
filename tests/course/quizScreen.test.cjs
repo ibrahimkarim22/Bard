@@ -85,6 +85,11 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
   const store = configureStore({ reducer: { course: slice.courseReducer }, preloadedState: { course: { completedLevel: level } } });
   const route = { params }, auth = { currentUser: uid ? { uid } : null };
   const profiles = new Map([[uid, level]]);
+  const storedHistory = new Map();
+  const unlockHistory = require('../../course/courseUnlockHistory').createCourseUnlockHistory({
+    getItem: async key => storedHistory.get(key) ?? null,
+    setItem: async (key, value) => { storedHistory.set(key, value); },
+  });
   let normalSource;
   const profileSnapshot = ref => ({ exists: () => true, data: () => ({ completedLevel: profiles.get(ref[2]) || 0 }),
     metadata: { fromCache: false, hasPendingWrites: false } });
@@ -122,6 +127,7 @@ function host({ plays = [play()], entries = [], params = { id: 'fixture-a' }, le
     'react-redux': { useSelector: select => select(store.getState()), useDispatch: () => dispatch },
     '../Progress/CourseSlice': slice, '../shared/localPlayService': { PLAYS: plays, getLocalPlayEntry: id => entries.find(entry => entry.slug === id) },
     '../firebaseConfig': { FIRESTORE_DB: 'fixture-db', FIREBASE_AUTH: auth },
+    './normalCourseUnlockHistory': { normalCourseUnlockHistory: unlockHistory },
     'firebase/firestore': firestore,
     'firebase/auth': { onAuthStateChanged: () => () => {} },
   }).default;

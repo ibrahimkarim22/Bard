@@ -176,3 +176,34 @@ test('a medal remains pending across an unseen course handoff and celebrates on 
   await restarted.load(owner.uid);
   assert.equal(restarted.getSnapshot(owner.uid).seenLevel, 1, 'the completed presentation survives an app restart');
 });
+
+test('re-earning a medal after a reset restores every unlock phase on either course entry', async () => {
+  for (const direct of [true, false]) {
+    const values = new Map();
+    const storage = { getItem: async key => values.get(key) ?? null, setItem: async (key, value) => values.set(key, value) };
+    const oldHistory = createCourseUnlockHistory(storage);
+    await oldHistory.acknowledge(owner.uid, 1);
+    const history = createCourseUnlockHistory(storage);
+    // The confirmed new quiz save re-arms before either navigation action.
+    await history.recordAdvance(owner.uid, 1);
+    const entry = courseEntry({ history, focused: direct, progress: confirmed(1) });
+    if (!direct) {
+      assert.equal(entry.unlock.session, null, 'visiting medals first leaves the course animation pending');
+      entry.focus(true);
+    }
+    entry.layout(); entry.visible('play-1'); await tick(); entry.render();
+    assert.equal(entry.unlock.phase, 'waiting');
+    entry.timer(120); entry.timer(800);
+    assert.equal(entry.unlock.phase, 'travel');
+    assert.equal(entry.animations[0].options.duration, 2400);
+    entry.visible('play-2'); entry.finish();
+    assert.equal(entry.unlock.phase, 'unlocking');
+    entry.finish(); assert.equal(entry.unlock.phase, 'sparkling');
+    entry.finish(); await tick(); entry.render();
+    assert.equal(history.getSnapshot(owner.uid).seenLevel, 1);
+    assert.equal(entry.unlock.session, null);
+    entry.focus(false); entry.focus(true);
+    assert.equal(entry.animations.length, 3, 'ordinary later visits do not replay the unlock');
+    entry.unmount();
+  }
+});
